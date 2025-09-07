@@ -6,6 +6,7 @@ from mpi4py import MPI
 from scipy.interpolate import interp1d
 from scipy.integrate import solve_ivp
 import sys
+import os
 
 import pymanopt
 import pymanopt.manifolds as manifolds
@@ -24,10 +25,8 @@ import opinf_functions as opinf_fun
 import troop_functions
 import fom_class_cgl
 
-
 cPOD, cOI, cTR, cOPT = '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3'
 lPOD, lOI, lTR, lOPT = 'solid', 'dotted', 'dashed', 'dashdot'
-
 
 #%% # Instantiate CGL class and CGL time-stepper class
 
@@ -43,7 +42,6 @@ a = 0.1
 
 fom = fom_class_cgl.CGL(x,nu,gamma,mu0,mu2,a)
 
-
 dt = 1e-2
 T = 500
 time = dt*np.arange(0,T//dt,1)
@@ -56,9 +54,11 @@ tsave = time[::nsave]
 # plt.plot(fom.x,fom.B[:fom.nx,0])
 # plt.plot(fom.x,fom.C[0,:fom.nx])
 
-
 #%%
 traj_path = "./trajectories/"
+data_path = "./data/"
+os.makedirs(traj_path,exist_ok=True)
+os.makedirs(data_path,exist_ok=True)
 
 fname_traj = traj_path + "traj_%03d.npy"
 fname_weight = traj_path + "weight_%03d.npy"

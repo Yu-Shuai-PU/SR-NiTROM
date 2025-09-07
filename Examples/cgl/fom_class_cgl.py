@@ -40,8 +40,6 @@ class CGL:
         Bi = np.concatenate((np.zeros(self.nx),B)).reshape((-1,1))
         self.B = np.concatenate((Br,Bi),axis=1)
         
-        
-        
     def assemble_first_derivative_operator(self): 
         
         f = 1./(12*self.dx)
@@ -79,7 +77,6 @@ class CGL:
         
         self.D = scipy.sparse.csc_array((data,(rows,cols)),shape=(self.nx,self.nx))
         
-    
     def assemble_second_derivative_operator(self): 
         
         f = 1./(12*(self.dx**2))
@@ -118,8 +115,7 @@ class CGL:
         data.extend([s,-2*s]) 
         
         self.DD = scipy.sparse.csc_array((data,(rows,cols)),shape=(self.nx,self.nx))
-        
-
+    
     def assemble_linear_operator(self):
         
         A11 = -self.nu.real*self.D + self.gamma.real*self.DD + self.muI 
@@ -129,7 +125,6 @@ class CGL:
         
         self.A = scipy.sparse.bmat([[A11,A12],[A21,A22]],format='csc')
         
-
     def evaluate_cgl_nonlinearity(self,q1,q2,q3):
         
         nx = self.nx
@@ -141,10 +136,8 @@ class CGL:
         
         return -self.a*np.concatenate((q1q2q3_real,q1q2q3_imag))
     
-    
     def evaluate_right_hand_side(self,q):
         return self.A.dot(q) + self.evaluate_cgl_nonlinearity(q,q,q)
-    
     
     def evaluate_cgl_linearized_nonlinearity(self,Q,q):
         
@@ -157,7 +150,6 @@ class CGL:
     
     def evaluate_cgl_adjoint_rhs(self,Q,q):
         return self.A.T.dot(q) + self.evaluate_cgl_linearized_nonlinearity(Q,q)
-    
     
     def assemble_random_periodic_vector(self,freqs,time):
         
@@ -174,7 +166,6 @@ class CGL:
         for k in range (1,len(freqs)):  f += 2*np.outer(modes[:,k],np.exp(1j*freqs[k]*time)).real
             
         return f.real
-    
     
     """
         Functions that conform with those expected by the TrOOP during the 
@@ -218,9 +209,7 @@ class CGL:
                     Hr[:,i,j,k] = Psi.T@(self.evaluate_cgl_nonlinearity(PhiF[:,i],PhiF[:,j],PhiF[:,k]))
         
         return (Ar, Hr), (Br, Cr)
-    
 
-    
 class time_step_cgl: 
     
     def __init__(self,cgl,time): 
@@ -231,8 +220,6 @@ class time_step_cgl:
         self.lu_A = scipy.sparse.linalg.splu((1/self.dt)*self.Id - (1/2)*cgl.A)
         self.lu_AT = scipy.sparse.linalg.splu((1/self.dt)*self.Id - (1/2)*cgl.A.T)
             
-            
-    
     def time_step(self,cgl,q,nsave,*argv): 
         
         tsave = self.time[::nsave]

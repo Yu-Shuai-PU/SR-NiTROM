@@ -38,83 +38,137 @@ nu = 4/87
 fom = fom_class_kse.KSE(L, nu, nx)
 
 dt = 1e-3
-T = 130
+T = 10
 time = dt * np.linspace(0, int(T/dt), int(T/dt) + 1, endpoint=True)
 tstep_kse_fom = fom_class_kse.time_step_kse(fom, time)
 
 nsave = 10
 tsave = time[::nsave]
 
-traj_path = "./trajectories/"
+sol_path = "./solutions/"
 data_path = "./data/"
-os.makedirs(traj_path, exist_ok=True)
+os.makedirs(sol_path, exist_ok=True)
 os.makedirs(data_path, exist_ok=True)
 
 #%% # Generate and save trajectory
-fname_traj = traj_path + "traj_%03d.npy"
-fname_weight = traj_path + "weight_%03d.npy"
-fname_rhs = traj_path + "rhs_%03d.npy"
-fname_time = traj_path + "time.npy"
+fname_sol = sol_path + "sol_%03d.npy" # for u
+fname_sol_fitted = sol_path + "sol_fitted_%03d.npy" # for u fitted
+fname_weight = sol_path + "weight_%03d.npy"
+fname_rhs = sol_path + "rhs_%03d.npy" # for du/dt
+fname_rhs_fitted = sol_path + "rhs_fitted_%03d.npy" # for du/dt fitted
+fname_shift_amount = sol_path + "shift_amount_%03d.npy" # for shifting amount
+fname_shift_speed = sol_path + "shift_speed_%03d.npy" # for shifting speed
+fname_time = sol_path + "time.npy"
 
-amps = np.array([[-1, 2, 3, -4]])
-n_traj = len(amps)
-uIC = np.zeros((nx, n_traj))
-for k in range (n_traj):
-    uIC[:,k] = amps[k,0] * np.sin(x) + amps[k,1] * np.cos(2 * x) + amps[k,2] * np.cos(3 * x) + amps[k,3] * np.sin(4 * x)
-
-plt.plot(x,uIC)
-plt.xlabel('$x$')
-plt.ylabel('$u(x,0)$')
-plt.title('KSE Initial Condition')
-plt.tight_layout()
-plt.show()
+# amps = np.array([[-1, 2, 3, -4]])
+# n_traj = len(amps)
+# uIC = np.zeros((nx, n_traj))
 # for k in range (n_traj):
-        
-#     print("Running simulation %d/%d"%(k,n_traj))
+#     uIC[:,k] = amps[k,0] * np.sin(x) + amps[k,1] * np.cos(2 * x) + amps[k,2] * np.cos(3 * x) + amps[k,3] * np.sin(4 * x)
 
-#     Ukj, tsave = tstep_kse_fom.time_step(uIC[:,k],nsave)
-#     dUdtkj = np.zeros_like(Ukj)
-#     for j in range (Ukj.shape[-1]):
-#         dUdtkj[:,j] = fom.evaluate_fom_rhs(0.0, Ukj[:,j], np.zeros(Ukj.shape[0]))
+n_sol = 1
+u_IC = np.zeros((nx, n_sol))
+u_IC = np.loadtxt(data_path + "initial_condition_time_80.txt") # load the initial condition to be the snapshot at t = 80 starting from the initial condition -sin(x) + 2cos(2x) + 3cos(3x) - 4sin(4x)
+u_IC = u_IC.reshape((-1,1))
 
-#     weight = np.mean(np.linalg.norm(dUdtkj,axis=0)**2)
+u_template = np.cos(x)
+u_template_dx = -np.sin(x)
 
-#     np.save(fname_traj%k,Ukj)
-#     np.save(fname_rhs%k,dUdtkj)
-#     np.save(fname_weight%k,[weight])
+for k in range (n_sol):
 
-# np.save(traj_path + "time.npy",tsave)
+    print("Running simulation %d/%d"%(k,n_sol))
 
-# --- MODIFIED PLOTTING SECTION ---
-# Find the indices corresponding to the time interval from 120s to 130s
-start_time = 120
-end_time = 130
+    sol, tsave = tstep_kse_fom.time_step(u_IC[:,k],nsave)
+    sol_fitted, shift_amount = fom_class_kse.template_fitting(sol, u_template, L, nx)
+    rhs = np.zeros_like(sol)
+    rhs_fitted = np.zeros_like(sol_fitted)
+    shift_speed = np.zeros_like(shift_amount)
+    for j in range (sol.shape[-1]):
+        rhs[:,j] = fom.evaluate_fom_rhs(0.0, sol[:,j], np.zeros(sol.shape[0]))
+        rhs_fitted[:, j] = fom_class_kse.shift(rhs[:,j], -shift_amount[j], L)
+        sol_fitted_slice_dx = fom.take_derivative(sol_fitted[:,j], order = 1)
+        shift_speed[j] = fom_class_kse.compute_shift_speed_FOM(rhs_fitted[:,j], sol_fitted_slice_dx, u_template_dx)
+    weight = np.mean(np.linalg.norm(rhs,axis=0)**2)
+    
+    np.save(fname_sol%k,sol)
+    np.save(fname_sol_fitted%k,sol_fitted)
+    np.save(fname_rhs%k,rhs)
+    np.save(fname_rhs_fitted%k,rhs_fitted)
+    np.save(fname_shift_amount%k,shift_amount)
+    np.save(fname_shift_speed%k,shift_speed)
+    np.save(fname_weight%k,weight)
 
-Ukj = np.load(fname_traj % 0)  # Load the trajectory data for the first simulation
-tsave = np.load(fname_time)    # Load the time data
+np.save(sol_path + "time.npy",tsave)
 
-# Create a boolean mask for the desired time range
-time_mask = (tsave >= start_time) & (tsave <= end_time)
-
-# Apply the mask to get the relevant slices of data and time
-tsave_slice = tsave[time_mask]
-Ukj_slice = Ukj[:, time_mask]
-
-# Plot the trajectory for the specified time interval
-plt.figure(figsize=(10, 6))
-if tsave_slice.size > 0 and Ukj_slice.size > 0:
-    # plt.contourf(tsave_slice, x, Ukj_slice, 100, cmap='jet')
-    plt.contourf(x, tsave_slice, Ukj_slice.T)
-    plt.colorbar(label='u(x,t)')
-else:
-    print("No data available in the specified time range (120s - 130s).")
-    # You might want to plot the full range as a fallback
-    # plt.contourf(x, tsave, Ukj.T, 100, cmap='jet')
-    # plt.colorbar(label='u(x,t)')
-
-
-plt.xlabel('$x$')
-plt.ylabel('Time (s)')
-plt.title('KSE FOM Trajectory (120s - 130s)')
+plt.figure(figsize=(10,6))
+plt.contourf(x,tsave,sol.T)
+plt.colorbar()
+plt.xlabel(r"$x$")
+plt.ylabel(r"$t$")
+plt.title(r"Trajectory")
 plt.tight_layout()
 plt.show()
+
+plt.figure(figsize=(10,6))
+plt.contourf(x,tsave,sol_fitted.T)
+plt.colorbar()
+plt.xlabel(r"$x$")
+plt.ylabel(r"$t$")
+plt.title(r"Trajectory")
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(10,6))
+plt.contourf(x,tsave,rhs.T)
+plt.colorbar()
+plt.xlabel(r"$x$")
+plt.ylabel(r"$t$")
+plt.title(r"Trajectory")
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(10,6))
+plt.contourf(x,tsave,rhs_fitted.T)
+plt.colorbar()
+plt.xlabel(r"$x$")
+plt.ylabel(r"$t$")
+plt.title(r"Trajectory")
+plt.tight_layout()
+plt.show()
+
+#%% Compute POD basis of the fitted solutions
+
+r = 4
+
+fnames_sol_fitted = [fname_sol_fitted%(k) for k in range (n_sol)]
+U_fitted = [np.load(fnames_sol_fitted[k]) for k in range (n_sol)]
+n_snapshots = U_fitted[0].shape[1]
+sol_fitted = np.zeros((nx,n_sol*n_snapshots))
+for k in range (n_sol): sol_fitted[:,k*n_snapshots:(k+1)*n_snapshots] = U_fitted[k]
+
+SVD_basis, singular_values, _ = scipy.linalg.svd(sol_fitted,full_matrices=False)
+
+Phi_POD = SVD_basis[:,:r]
+Psi_POD = Phi_POD.copy()
+PhiF_POD = Phi_POD@scipy.linalg.inv(Psi_POD.T@Phi_POD)
+cumulative_energy_proportion = 100 * np.cumsum(singular_values[:r]**2) / np.sum(singular_values**2)
+
+filename = data_path + "SROpInf_ROM_w_reproj.npz"
+
+with np.load(filename) as data:
+    POD_basis = data['POD_basis']
+    SR_OpInf_linear = data['SR_OpInf_linear']
+    SR_OpInf_bilinear = data['SR_OpInf_bilinear']
+    SR_OpInf_cdot_numer_linear = data['SR_OpInf_cdot_numer_linear']
+    SR_OpInf_cdot_numer_bilinear = data['SR_OpInf_cdot_numer_bilinear']
+    SR_OpInf_cdot_denom_linear = data['SR_OpInf_cdot_denom']
+    SR_OpInf_udx_linear = data['SR_OpInf_udx_linear']
+    template = data['template']
+
+poly_comp = [1, 2] # polynomial degree for the ROM dynamics
+Tensors_POD = fom.assemble_petrov_galerkin_tensors(Phi_POD, Psi_POD, u_template_dx)
+
+sol_SR_POD_Galerkin = PhiF_POD@(solve_ivp(opt_obj.evaluate_rom_rhs,[0,time[-1]],np.zeros(r),'RK45',t_eval=tsave,args=(fu,) + tensors_tr)).y
+
+
+print("wait")

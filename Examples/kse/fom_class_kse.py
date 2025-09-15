@@ -1,4 +1,11 @@
 import numpy as np
+import scipy
+
+def inner_product(u, v, L):
+    """Compute the inner product of two spatial functions u and v."""
+    N = len(u)
+    dx = L / N
+    return np.dot(u, v) * dx
 
 def freq_to_space(uhat):
 
@@ -39,9 +46,81 @@ def shift(u, c, L):
     
     return freq_to_space(uhat_shifted)
 
+def template_fitting(traj, traj_template, L, nx, c_old = None):
+
+    if traj.ndim == 1 or traj.shape[1] == 1: # this means that we are dealing with a single snapshot
+        if c_old is None: # this means we are fitting the initial condition, we need a larger search range
+            c_range = np.linspace(-L/2, L/2, 10000 * nx, endpoint=False)
+            minimal_error = 1e5
+            for c in c_range:
+                traj_fitted_tmp = shift(traj, -c, L) # minimize the difference between u(x + c) and the template
+                error = np.linalg.norm(traj_fitted_tmp - traj_template) # take the initial condition as the template
+                # if this is a perfect TW, then the shifted state/rhs at the new timestep should equal to the previous state/rhs
+                if error < minimal_error:
+                    minimal_error = error
+                    c_new = c
+            return shift(traj, -c_new), c_new
+        else: # this means we are fitting the following snapshots, we only need to modify the old shifting amount by a small amount
+            dx = L / nx
+            c_step_range = np.linspace(-1 * dx, 1 * dx, 10 * nx, endpoint=False)
+            minimal_error = 1e5
+            for c_step in c_step_range:
+                traj_fitted_tmp = shift(traj, -(c_old + c_step), L)
+                error = np.linalg.norm(traj_fitted_tmp - traj_template) # take the initial condition as the template
+                # if this is a perfect TW, then the shifted state/rhs at the new timestep should equal to the previous state/rhs
+                if error < minimal_error:
+                    minimal_error = error
+                    c_new = c_old + c_step
+            return shift(traj, -c_new), c_new
+
+    else: # this means we are dealing with a trajectory matrix of possible the form (nx, nt)
+        n_snapshots = traj.shape[1]
+        dx = L / nx
+        c = np.zeros(n_snapshots)
+        c_range = np.linspace(-L/2, L/2, 10000 * nx, endpoint=False)
+        c_step_range = np.linspace(-1 * dx, 1 * dx, 10 * nx, endpoint=False)
+        traj_fitted = np.zeros_like(traj)
+        minimal_error = 1e5
+
+        for c_init in c_range:
+
+            traj_slice_fitted_tmp = shift(traj[:, 0], -c_init, L)
+            error = np.linalg.norm(traj_slice_fitted_tmp - traj_template)
+            if error < minimal_error:
+                minimal_error = error
+                c[0] = c_init
+
+        traj_fitted[:, 0] = shift(traj[:, 0], -c[0], L)
+
+        for time in range(1, n_snapshots):
+
+            minimal_error = 1e5
+
+            c[time] = c[time - 1]
+
+            for c_step in c_step_range:
+
+                traj_slice_fitted_tmp = shift(traj[:, time], -(c[time - 1] + c_step), L)
+
+                error = np.linalg.norm(traj_slice_fitted_tmp - traj_template) # take the initial condition as the template
+                # if this is a perfect TW, then the shifted state/rhs at the new timestep should equal to the previous state/rhs
+
+                if error < minimal_error:
+                    minimal_error = error
+                    c[time] = c[time - 1] + c_step
+
+            traj_fitted[:, time] = shift(traj[:, time], -c[time], L)
+
+        return traj_fitted, c
+
+def compute_shift_speed_FOM(rhs_fitted, sol_fitted_dx, sol_template_dx):
+    """Compute the shifting speed for the FOM."""
+    return - np.dot(rhs_fitted, sol_template_dx) / np.dot(sol_fitted_dx, sol_template_dx)
+
 class KSE:
 
     def __init__(self, L, nu, nx):
+        self.L = L
         self.nu = nu
         self.nx = nx
         self.nmodes = nx // 2
@@ -104,6 +183,32 @@ class KSE:
         else:                           rhs = self.linear(u) + self.nonlinear(u) + f_ext
 
         return rhs
+    
+    def assemble_petrov_galerkin_tensors(self, Phi, Psi, u0_dx):
+        """Assemble the Petrov-Galerkin projection matrices."""
+        
+        r = Phi.shape[1]
+        A_mat = np.zeros((r, r))
+        B_tensor = np.zeros((r, r, r))
+        p_vec = np.zeros(r)
+        Q_mat = np.zeros((r, r))
+        s_vec = np.zeros(r)
+        M_mat = np.zeros((r, r))
+
+        PhiF = Phi@scipy.linalg.inv(Psi.T@Phi)
+        PhiF_dx = self.take_derivative(PhiF, order=1)
+
+        M_mat = Psi.T @ PhiF_dx
+        for i in range(r):
+            p_vec[i] = inner_product(u0_dx, Psi[:, i], self.L)
+            s_vec[i] = inner_product(u0_dx, PhiF_dx[:, i], self.L)
+            for j in range(r):
+                A_mat[i, j] = np.dot(Psi[:, i], self.linear(PhiF[:, j]))
+                Q_mat[i, j] = inner_product(u0_dx, self.bilinear(PhiF[:, i], PhiF[:, j]), self.L)
+                for k in range(r):
+                    B_tensor[i, j, k] = np.dot(Psi[:, i], self.bilinear(PhiF[:, j], PhiF[:, k]))
+
+        return (A_mat, B_tensor, p_vec, Q_mat, s_vec, M_mat)
     
 class time_step_kse:
     

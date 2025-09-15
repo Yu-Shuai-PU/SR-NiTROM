@@ -5,7 +5,7 @@ from string import ascii_lowercase as ascii
 
 class mpi_pool:
 
-    def __init__(self,comm,n_traj,fname_traj,fname_time,**kwargs):
+    def __init__(self,comm,n_sol,fname_time,**kwargs):
         
         """ 
         This class contains all the info regarding the MPI pool that will be used 
@@ -29,66 +29,82 @@ class mpi_pool:
         self.size = self.comm.Get_size()            # Total number of processes
         self.rank = self.comm.Get_rank()            # Id of the current process
 
-        self.n_traj = n_traj                        # Total number of training trajectories
-        if self.size > self.n_traj:
+        self.n_sol = n_sol                        # Total number of training trajectories
+        if self.size > self.n_sol:
             raise ValueError ("You have more MPI processes than trajectories!")
         else:
             if self.rank == 0:
                 print("Hello, you are running NiTROM with %d MPI processors."%self.size)
-        
-        self.my_n_traj = self.n_traj//self.size     # Number of trajectories owned by process self.rank
-        self.my_n_traj += 1 if np.mod(self.n_traj,self.size) > self.rank else 0
 
+        self.my_n_sol = self.n_sol//self.size     # Number of trajectories owned by process self.rank
+        self.my_n_sol += 1 if np.mod(self.n_sol,self.size) > self.rank else 0
 
         # Vectors used for future MPI communications
         self.counts = np.zeros(self.size,dtype=np.int64)    
-        self.comm.Allgather([np.asarray([self.my_n_traj]),MPI.INT],[self.counts,MPI.INT])
+        self.comm.Allgather([np.asarray([self.my_n_sol]),MPI.INT],[self.counts,MPI.INT])
         self.disps = np.concatenate(([0],np.cumsum(self.counts)[:-1])) 
         
-        
         # Load data from file
-        self.load_trajectories(fname_traj)
         self.time = np.load(fname_time)
-        self.load_weights(kwargs)
+        self.load_sol(kwargs)
+        self.load_rhs(kwargs)
+        self.load_weight(kwargs)
         self.load_steady_forcing(kwargs)
-        self.load_time_derivatives(kwargs)
         
+    def load_sol(self,kwargs):
         
-    def load_trajectories(self,fname_traj):
+        fname_sol = kwargs.get('fname_sol',None)
+        if fname_sol == None:
+            raise ValueError ("Need a valid fname_sol path where you store your solutions")
+        else:
+            self.fnames_sol = [fname_sol%(k+self.disps[self.rank]) for k in range (self.my_n_sol)]
+            X = [np.load(self.fnames_sol[k]) for k in range (self.my_n_sol)]
+            self.N, self.n_snapshots = X[0].shape
+            self.sol = np.zeros((self.my_n_sol,self.N,self.n_snapshots))
+            for k in range (self.my_n_sol): self.sol[k,] = X[k]
+
+            fname_sol_fitted = kwargs.get('fname_sol_fitted',None)
+            if fname_sol_fitted == None:
+                raise ValueError ("Need a valid fname_sol_fitted path where you store your template fitted solutions")
+            else:
+                self.fnames_sol_fitted = [fname_sol_fitted%(k+self.disps[self.rank]) for k in range (self.my_n_sol)]
+                X_fitted = [np.load(self.fnames_sol_fitted[k]) for k in range (self.my_n_sol)]
+                self.sol_fitted = np.zeros((self.my_n_sol,self.N,self.n_snapshots))
+                for k in range (self.my_n_sol): self.sol_fitted[k,] = X_fitted[k]
+                
+    def load_rhs(self,kwargs):
         
-        self.fnames_traj = [fname_traj%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-        X = [np.load(self.fnames_traj[k]) for k in range (self.my_n_traj)]
-        self.N, self.n_snapshots = X[0].shape
-        self.X = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
-        for k in range (self.my_n_traj): self.X[k,] = X[k]
+        fname_rhs = kwargs.get('fname_rhs',None)
+        if fname_rhs != None:
+            self.fnames_rhs = [fname_rhs%(k+self.disps[self.rank]) for k in range (self.my_n_sol)]
+            dXdt = [np.load(self.fnames_rhs[k]) for k in range (self.my_n_sol)]
+            self.rhs = np.zeros((self.my_n_sol,self.N,self.n_snapshots))
+            for k in range (self.my_n_sol): self.rhs[k,] = dXdt[k]
+        fname_rhs_fitted = kwargs.get('fname_rhs_fitted',None)
+        if fname_rhs_fitted != None:
+            self.fnames_rhs_fitted = [fname_rhs_fitted%(k+self.disps[self.rank]) for k in range (self.my_n_sol)]
+            dXdt_fitted = [np.load(self.fnames_rhs_fitted[k]) for k in range (self.my_n_sol)]
+            self.rhs_fitted = np.zeros((self.my_n_sol,self.N,self.n_snapshots))
+            for k in range (self.my_n_sol): self.rhs_fitted[k,] = dXdt_fitted[k]
+
+    def load_weight(self,kwargs):
         
-    def load_weights(self,kwargs):
-        
-        fname_weights = kwargs.get('fname_weights',None)
-        self.weights = np.ones(self.my_n_traj)
-        if fname_weights != None:
-            self.fnames_weights = [fname_weights%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-            weights = [np.load(self.fnames_weights[k]) for k in range (self.my_n_traj)]
-            self.weights = np.zeros(self.my_n_traj)
-            for k in range (self.my_n_traj): self.weights[k] = weights[k]
-            
+        fname_weight = kwargs.get('fname_weight',None)
+        self.weight = np.ones(self.my_n_sol)
+        if fname_weight != None:
+            self.fnames_weight = [fname_weight%(k+self.disps[self.rank]) for k in range (self.my_n_sol)]
+            alpha = [np.load(self.fnames_weight[k]) for k in range (self.my_n_sol)]
+            self.weight = np.zeros(self.my_n_sol)
+            for k in range (self.my_n_sol): self.weight[k] = alpha[k]
+
     def load_steady_forcing(self,kwargs):
         
         fname_forcing = kwargs.get('fname_steady_forcing',None)
-        self.F = np.zeros((self.N,self.my_n_traj))
+        self.f_ext_steady = np.zeros((self.N,self.my_n_sol))
         if fname_forcing != None:
-            self.fnames_forcing = [(fname_forcing)%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-            for k in range (self.my_n_traj):  self.F[:,k] = np.load(self.fnames_forcing[k])
-    
-    def load_time_derivatives(self,kwargs):
-        
-        fname_deriv = kwargs.get('fname_derivs',None)
-        if fname_deriv != None:
-            self.fnames_deriv = [fname_deriv%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-            dX = [np.load(self.fnames_deriv[k]) for k in range (self.my_n_traj)]
-            self.dX = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
-            for k in range (self.my_n_traj): self.dX[k,] = dX[k]
-        
+            self.fnames_forcing = [(fname_forcing)%(k+self.disps[self.rank]) for k in range (self.my_n_sol)]
+            for k in range (self.my_n_sol):  self.f_ext_steady[:,k] = np.load(self.fnames_forcing[k])
+
 class optimization_objects:
 
     def __init__(self,mpi_pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp,**kwargs):

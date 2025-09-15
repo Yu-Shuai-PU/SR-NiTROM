@@ -12,7 +12,6 @@ def compute_indices(c_ls=[], c=0, idx=5, r=5, order=0):
         else:               c_ls = compute_indices(c_ls,ci,i+1,r,order-1)
     return c_ls
 
-        
 def perform_POD(mpi_pool,r):
     
     N = mpi_pool.n_snapshots*mpi_pool.n_traj

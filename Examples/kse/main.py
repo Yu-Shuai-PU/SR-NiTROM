@@ -166,9 +166,51 @@ with np.load(filename) as data:
     template = data['template']
 
 poly_comp = [1, 2] # polynomial degree for the ROM dynamics
-Tensors_POD = fom.assemble_petrov_galerkin_tensors(Phi_POD, Psi_POD, u_template_dx)
+Tensors_POD = fom.assemble_petrov_galerkin_tensors(Phi_POD, Psi_POD, u_template_dx) # A, B, p, Q, s, M
 
-sol_SR_POD_Galerkin = PhiF_POD@(solve_ivp(opt_obj.evaluate_rom_rhs,[0,time[-1]],np.zeros(r),'RK45',t_eval=tsave,args=(fu,) + tensors_tr)).y
+pool_inputs = (MPI.COMM_WORLD, n_sol, fname_time)
+pool_kwargs = {'fname_sol':fname_sol,'fname_sol_fitted':fname_sol_fitted,
+               'fname_rhs':fname_rhs,'fname_rhs_fitted':fname_rhs_fitted,
+               'fname_shift_amount':fname_shift_amount,'fname_shift_speed':fname_shift_speed,
+               'fname_weights':fname_weight}
+pool = classes.mpi_pool(*pool_inputs,**pool_kwargs)
 
+#%% Simulate SR-Galerkin ROM
+
+which_trajs = np.arange(0,n_sol,1)
+which_times = np.arange(0,n_snapshots,1)
+leggauss_deg = 5
+nsave_rom = 10
+
+opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
+# opt_obj_kwargs = {'stab_promoting_pen':1e-2,'stab_promoting_tf':20,'stab_promoting_ic':(np.random.randn(r),)}
+
+opt_obj = classes.optimization_objects(*opt_obj_inputs)
+
+sol_SR_POD_Galerkin_init_state = Psi_POD.T @ opt_obj.sol_fitted[0,:,0]
+sol_SR_POD_Galerkin_init_shift_amount = opt_obj.shift_amount[0,0]
+
+output_SR_POD_Galerkin = solve_ivp(opt_obj.evaluate_rom_rhs,
+                                          [0,time[-1]],
+                                          np.hstack((sol_SR_POD_Galerkin_init_state, sol_SR_POD_Galerkin_init_shift_amount)),
+                                          'RK45',
+                                          t_eval=tsave,
+                                          args=(np.zeros(r),) + Tensors_POD).y
+
+sol_fitted_SR_POD_Galerkin = PhiF_POD@output_SR_POD_Galerkin[:r,:]
+shift_amount_SR_POD_Galerkin = output_SR_POD_Galerkin[-1,:]
+sol_SR_POD_Galerkin = np.zeros_like(sol_fitted_SR_POD_Galerkin)
+
+for k in range (len(tsave)):
+    sol_SR_POD_Galerkin[:,k] = fom_class_kse.shift(sol_fitted_SR_POD_Galerkin[:,k], shift_amount_SR_POD_Galerkin[k], L)
+
+plt.figure(figsize=(10,6))
+plt.contourf(x,tsave,sol_SR_POD_Galerkin.T)
+plt.colorbar()
+plt.xlabel(r"$x$")
+plt.ylabel(r"$t$")
+plt.title(r"SR-Galerkin POD-ROM")
+plt.tight_layout()
+plt.show()
 
 print("wait")

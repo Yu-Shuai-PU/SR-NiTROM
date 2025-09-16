@@ -3,7 +3,6 @@ import scipy as sp
 import math
 from string import ascii_lowercase as ascii
 
-
 def compute_indices(c_ls=[], c=0, idx=5, r=5, order=0):
     
     for i in range(idx):

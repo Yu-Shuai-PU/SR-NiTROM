@@ -5,7 +5,7 @@ from string import ascii_lowercase as ascii
 
 class mpi_pool:
 
-    def __init__(self,comm,n_sol,fname_time,**kwargs):
+    def __init__(self,comm,n_sol,**kwargs):
         
         """ 
         This class contains all the info regarding the MPI pool that will be used 
@@ -42,16 +42,19 @@ class mpi_pool:
         # Vectors used for future MPI communications
         self.counts = np.zeros(self.size,dtype=np.int64)    
         self.comm.Allgather([np.asarray([self.my_n_sol]),MPI.INT],[self.counts,MPI.INT])
-        self.disps = np.concatenate(([0],np.cumsum(self.counts)[:-1])) 
+        self.disps = np.concatenate(([0],np.cumsum(self.counts)[:-1]))
         
+        self.kwargs = kwargs
         # Load data from file
-        self.time = np.load(fname_time)
-        self.load_sol(kwargs)
-        self.load_rhs(kwargs)
-        self.load_shift(kwargs)
-        self.load_weight(kwargs)
-        self.load_steady_forcing(kwargs)
         
+    def load_data(self):
+        self.time = np.load(self.kwargs.get('fname_time', None))
+        self.load_sol(self.kwargs)
+        self.load_rhs(self.kwargs)
+        self.load_shift(self.kwargs)
+        self.load_weight(self.kwargs)
+        self.load_steady_forcing(self.kwargs)
+
     def load_sol(self,kwargs):
         
         fname_sol = kwargs.get('fname_sol',None)
@@ -75,7 +78,29 @@ class mpi_pool:
                 self.sol_fitted = np.zeros((self.my_n_sol,self.N,self.n_snapshots))
         
                 for k in range (self.my_n_sol): self.sol_fitted[k,] = X_fitted[k]
+
+            fname_sol_init = kwargs.get('fname_sol_init',None)
+            if fname_sol_init == None:
+                raise ValueError ("Need a valid fname_sol_init path where you store your initial solutions")
+            else:
+                self.fnames_sol_init = [fname_sol_init%(k+self.disps[self.rank]) for k in range (self.my_n_sol)]
+                X_init = [np.load(self.fnames_sol_init[k]) for k in range (self.my_n_sol)]
                 
+                self.sol_init = np.zeros((self.my_n_sol,self.N))
+
+                for k in range (self.my_n_sol): self.sol_init[k,] = X_init[k]
+
+            fname_sol_init_fitted = kwargs.get('fname_sol_init_fitted',None)
+            if fname_sol_init_fitted == None:
+                raise ValueError ("Need a valid fname_sol_init_fitted path where you store your initial fitted solutions")
+            else:
+                self.fnames_sol_init_fitted = [fname_sol_init_fitted%(k+self.disps[self.rank]) for k in range (self.my_n_sol)]
+                X_init_fitted = [np.load(self.fnames_sol_init_fitted[k]) for k in range (self.my_n_sol)]
+
+                self.sol_init_fitted = np.zeros((self.my_n_sol,self.N))
+
+                for k in range (self.my_n_sol): self.sol_init_fitted[k,] = X_init_fitted[k]
+
     def load_rhs(self,kwargs):
         
         fname_rhs = kwargs.get('fname_rhs',None)
@@ -158,6 +183,8 @@ class optimization_objects:
             stab_promoting_ic:      random (unit-norm) vector to probe the stability penalty
         """
         
+        self.sol_init = mpi_pool.sol_init[which_trajs,:]
+        self.sol_init_fitted = mpi_pool.sol_init_fitted[which_trajs,:]
         self.sol = mpi_pool.sol[which_trajs,:,:]
         self.sol_fitted = mpi_pool.sol_fitted[which_trajs,:,:]
         self.rhs = mpi_pool.rhs[which_trajs,:,:]
@@ -287,6 +314,26 @@ class optimization_objects:
 
         return np.hstack((dzdt, dcdt))
     
+    def compute_shift_speed(self, z, operators):
+        """
+            Function to compute the shift speed given a state z and the ROM operators
+        """
+        cdot_denom_linear = operators[-2]
+        udx_linear = operators[-1]
+        cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
+        if abs(cdot_denom) < 1e-4:
+            raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
+        udx = np.einsum('ij, j', udx_linear,z)
+        
+        cdot_numer = 0.0
+        
+        for (i, k) in enumerate(self.poly_comp):
+            equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
+            operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
+            cdot_numer -= np.einsum(equation,*operands)
+            
+        return cdot_numer/cdot_denom
+        
     def evaluate_rom_adjoint(self,t,z,fq,*operators):
         """
             Function that can be fed into scipys solve_ivp. 

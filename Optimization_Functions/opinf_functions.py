@@ -2,6 +2,7 @@ import numpy as np
 import scipy as sp
 import math
 from string import ascii_lowercase as ascii
+from mpi4py import MPI
 
 def compute_indices(c_ls=[], c=0, idx=5, r=5, order=0):
     
@@ -11,17 +12,43 @@ def compute_indices(c_ls=[], c=0, idx=5, r=5, order=0):
         else:               c_ls = compute_indices(c_ls,ci,i+1,r,order-1)
     return c_ls
 
-def perform_POD(mpi_pool,r):
+def perform_POD(pool,r):
     
-    N = mpi_pool.n_snapshots*mpi_pool.n_traj
-    X = np.zeros((mpi_pool.X.shape[1],N))
+    X = pool.sol_fitted
     
-    for i in range (mpi_pool.n_traj):
-        X[:,i*mpi_pool.n_snapshots:(i+1)*mpi_pool.n_snapshots] = mpi_pool.X[i,]
-        
-    u, s, _ = sp.linalg.svd(X,full_matrices=False)
+    N_space = X.shape[1]
+    N_snapshots = pool.n_snapshots
     
-    return u[:,:r], (100*np.cumsum(s[:r]**2)/np.sum(s**2))[-1]
+    X = X.transpose(1, 0, 2).reshape(N_space, -1)
+
+    if pool.rank == 0:
+        X_all = np.empty((N_space,N_snapshots * pool.n_sol))
+    else:
+        X_all = None
+
+    my_counts = pool.counts * N_space * N_snapshots
+    my_disps = pool.disps * N_space * N_snapshots
+    
+    pool.comm.Gatherv(sendbuf = X,
+                      recvbuf = [X_all, my_counts, my_disps, MPI.DOUBLE], root=0)
+    
+    if pool.rank == 0:
+        U, S, _ = sp.linalg.svd(X_all, full_matrices=False)
+        Phi = U[:,:r]
+        cumulative_energy_proportion = 100 * np.cumsum(S[:r]**2) / np.sum(S**2)
+    else:
+        Phi = np.empty((N_space,r))
+        cumulative_energy_proportion = np.empty(r)
+    
+    pool.comm.Bcast(Phi, root=0)
+    pool.comm.Bcast(cumulative_energy_proportion, root=0)
+    pool.comm.Barrier()
+    
+    if pool.rank == 0:
+        print('POD complete on the primary processor and distributed, energy captured: %.4f%%'%(cumulative_energy_proportion[-1]))
+    
+    return Phi, cumulative_energy_proportion
+
 
 def assemble_Y(mpi_pool,Phi):
     

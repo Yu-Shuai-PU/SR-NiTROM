@@ -140,22 +140,30 @@ class mpi_pool:
             for k in range (self.my_n_sol): self.shift_speed[k,] = cdot[k]
 
     def load_weight(self,kwargs):
-        
-        fname_weight = kwargs.get('fname_weight',None)
-        self.weight = np.ones(self.my_n_sol)
-        if fname_weight != None:
-            self.fnames_weight = [fname_weight%(k+self.disps[self.rank]) for k in range (self.my_n_sol)]
-            alpha = [np.load(self.fnames_weight[k]) for k in range (self.my_n_sol)]
-            self.weight = np.zeros(self.my_n_sol)
-            for k in range (self.my_n_sol): self.weight[k] = alpha[k]
 
+        fname_weight_sol = kwargs.get('fname_weight_sol',None)
+        self.weight_sol = np.ones(self.my_n_sol)
+        if fname_weight_sol != None:
+            self.fnames_weight_sol = [fname_weight_sol%(k+self.disps[self.rank]) for k in range (self.my_n_sol)]
+            alpha = [np.load(self.fnames_weight_sol[k]) for k in range (self.my_n_sol)]
+            self.weight_sol = np.zeros(self.my_n_sol)
+            for k in range (self.my_n_sol): self.weight_sol[k] = alpha[k]
+            
+        fname_weight_shift_amount = kwargs.get('fname_weight_shift_amount',None)
+        self.weight_shift_amount = np.ones(self.my_n_sol)
+        if fname_weight_shift_amount != None:
+            self.fnames_weight_shift_amount = [fname_weight_shift_amount%(k+self.disps[self.rank]) for k in range (self.my_n_sol)]
+            beta = [np.load(self.fnames_weight_shift_amount[k]) for k in range (self.my_n_sol)]
+            self.weight_shift_amount = np.zeros(self.my_n_sol)
+            for k in range (self.my_n_sol): self.weight_shift_amount[k] = beta[k]
+            
     def load_steady_forcing(self,kwargs):
         
         fname_forcing = kwargs.get('fname_steady_forcing',None)
-        self.f_ext_steady = np.zeros((self.N,self.my_n_sol))
+        self.f_ext_steady = np.zeros((self.my_n_sol, self.N))
         if fname_forcing != None:
             self.fnames_forcing = [(fname_forcing)%(k+self.disps[self.rank]) for k in range (self.my_n_sol)]
-            for k in range (self.my_n_sol):  self.f_ext_steady[:,k] = np.load(self.fnames_forcing[k])
+            for k in range (self.my_n_sol):  self.f_ext_steady[k,:] = np.load(self.fnames_forcing[k])
 
 class optimization_objects:
 
@@ -183,17 +191,18 @@ class optimization_objects:
             stab_promoting_ic:      random (unit-norm) vector to probe the stability penalty
         """
         
-        self.sol_init = mpi_pool.sol_init[which_trajs,:]
-        self.sol_init_fitted = mpi_pool.sol_init_fitted[which_trajs,:]
+        # self.sol_init = mpi_pool.sol_init[which_trajs,:]
+        # self.sol_init_fitted = mpi_pool.sol_init_fitted[which_trajs,:]
         self.sol = mpi_pool.sol[which_trajs,:,:]
         self.sol_fitted = mpi_pool.sol_fitted[which_trajs,:,:]
         self.rhs = mpi_pool.rhs[which_trajs,:,:]
         self.rhs_fitted = mpi_pool.rhs_fitted[which_trajs,:,:]
         self.shift_amount = mpi_pool.shift_amount[which_trajs,:]
         self.shift_speed = mpi_pool.shift_speed[which_trajs,:]
-        self.f_ext_steady = mpi_pool.f_ext_steady[:,which_trajs]
-        self.weight = mpi_pool.weight[which_trajs]
-        
+        self.f_ext_steady = mpi_pool.f_ext_steady[which_trajs,:]
+        self.weight_sol = mpi_pool.weight_sol[which_trajs]
+        self.weight_shift_amount = mpi_pool.weight_shift_amount[which_trajs]
+
         self.sol = self.sol[:,:,which_times]
         self.sol_fitted = self.sol_fitted[:,:,which_times]
         self.rhs = self.rhs[:,:,which_times]
@@ -216,9 +225,17 @@ class optimization_objects:
         # if all trajectories are loaded, then np.sum(counts) = mpi_pool.n_traj)
         counts = np.zeros(mpi_pool.size,dtype=np.int64)
         mpi_pool.comm.Allgather([np.asarray([self.my_n_traj]),MPI.INT],[counts,MPI.INT])
-        self.weight *= np.sum(counts)*self.n_snapshots
         
         # Parse the keyword arguments
+        self.relative_weight = kwargs.get('relative_weight',1.0)
+        self.weight_sol *= np.sum(counts)*self.n_snapshots
+        self.weight_shift_amount *= np.sum(counts)*self.n_snapshots * self.relative_weight
+        
+        self.sol_template_dx = kwargs.get('sol_template_dx',None)
+        self.take_derivative = kwargs.get('spatial_derivative_method',None)
+        self.inner_product = kwargs.get('inner_product_method',None)
+        self.outer_product = kwargs.get('outer_product_method',None)
+        
         self.which_fix = kwargs.get('which_fix','fix_none')
         if self.which_fix not in ['fix_tensors','fix_bases','fix_none']:
             raise ValueError ("which_fix must be fix_none, fix_tensors or fix_bases")
@@ -270,100 +287,124 @@ class optimization_objects:
         
         self.einsum_ss_rhs_shift_speed_numer = tuple(ss)
 
-    def evaluate_rom_rhs(self,t,z_and_c,u,*operators,**kwargs):
+    def evaluate_rom_rhs(self,t,ac,u,*operators,**kwargs):
         """
             Function that can be fed into scipys solve_ivp. 
             t:          time instance
-            z:          state vector (reduced state + shift amount)
+            a:          state vector (reduced state + shift amount)
             u:          a steady forcing vector
             operators:  (A2,A3,A4,...)
             
             Optional keyword arguments:
                 'forcing_interp':   a scipy interpolator f that gives us a forcing f(t)
         """
-        z = z_and_c[:-1]
-        c = z_and_c[-1]
-        
-        if np.linalg.norm(z) >= 1e4:    
-            dzdt = 0.0*z 
+        a = ac[:-1]
+        c = ac[-1]
+
+        if np.linalg.norm(a) >= 1e4:
+            dzdt = 0.0*a
         else:
             f = kwargs.get('forcing_interp',None)
-            f = f(t) if f != None else np.zeros(len(z))
+            f = f(t) if f != None else np.zeros(len(a))
             u = u.copy() if hasattr(u,"__len__") == True else u(t)
             dzdt = u + f
             
             cdot_denom_linear = operators[-2]
             udx_linear = operators[-1]
-            cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
+            cdot_denom = np.einsum('i,i',cdot_denom_linear,a)
             if abs(cdot_denom) < 1e-4:
                 raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
-            udx = np.einsum('ij, j', udx_linear,z)
-            
+            udx = np.einsum('ij, j', udx_linear,a)
+
             cdot_numer = 0.0
             
             for (i, k) in enumerate(self.poly_comp):
                 equation = ",".join(self.einsum_ss_rhs_poly[i])
-                operands = [operators[i]] + [z for _ in range(k)]
+                operands = [operators[i]] + [a for _ in range(k)]
                 dzdt += np.einsum(equation,*operands)
                 equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
-                operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
+                operands = [operators[i + len(self.poly_comp)]] + [a for _ in range(k)]
                 cdot_numer -= np.einsum(equation,*operands)
                 
             dzdt = dzdt + (cdot_numer/cdot_denom) * udx
             dcdt = cdot_numer/cdot_denom
-
+            
         return np.hstack((dzdt, dcdt))
-    
-    def compute_shift_speed(self, z, operators):
+
+    def compute_shift_speed(self, a, operators):
         """
-            Function to compute the shift speed given a state z and the ROM operators
+            Function to compute the shift speed given a state a and the ROM operators
         """
         cdot_denom_linear = operators[-2]
-        udx_linear = operators[-1]
-        cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
+        cdot_denom = np.einsum('i,i',cdot_denom_linear,a)
         if abs(cdot_denom) < 1e-4:
             raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
-        udx = np.einsum('ij, j', udx_linear,z)
         
         cdot_numer = 0.0
         
         for (i, k) in enumerate(self.poly_comp):
             equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
-            operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
+            operands = [operators[i + len(self.poly_comp)]] + [a for _ in range(k)]
             cdot_numer -= np.einsum(equation,*operands)
-            
+
         return cdot_numer/cdot_denom
+    
+    def compute_shift_speed_denom(self, a, operators):
+        """
+            Function to compute the denominator of the shift speed given a state a and the ROM operators
+        """
+        cdot_denom_linear = operators[-2]
+        cdot_denom = np.einsum('i,i',cdot_denom_linear,a)
+        if abs(cdot_denom) < 1e-4:
+            raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
         
-    def evaluate_rom_adjoint(self,t,z,fq,*operators):
+        return cdot_denom
+
+    def evaluate_rom_adjoint(self,t,xi,fz,fcdot, const, PhiF_dx,Psi, *operators):
         """
             Function that can be fed into scipys solve_ivp. 
             t:          time instance
-            z:          state vector
+            xi:         state vector of the adjoint system
             fq:         interpolator (from scipy.interpolate) to evaluate the
                         base flow at time t
-            operators:  (A2,A3,A4,...)
+            operators:  (A, B, p, Q, s, M)
         """
-        
-        if np.linalg.norm(z) >= 1e4:
-            dzdt = 0.0*z
+
+        if np.linalg.norm(xi) >= 1e4:
+            dxidt = 0.0*xi
         else:
-            J = np.zeros((len(z),len(z)))
+            dxidt = 0.0*xi
+            # we first figure out the Jacobian J = partial g/partial z,
+            # g(z) = Az + B(z, z) + cdot * M z 
+            dgdz = fcdot(t) * operators[-1] # cdot * M
             for (i, k) in enumerate(self.poly_comp):
                 
-                combs = list(combinations(self.einsum_ss[i][1:],r=k-1))
-                operands = [operators[i]] + [fq(t) for _ in range(k-1)]
+                combs = list(combinations(self.einsum_ss_rhs_poly[i][1:],r=k-1))
+                operands = [operators[i]] + [fz(t) for _ in range(k-1)]
                 for comb in combs:
-                    equation = [self.einsum_ss[i][0]] + list(comb)
+                    equation = [self.einsum_ss_rhs_poly[i][0]] + list(comb)
                     equation = ",".join(equation)
-                    
-                    J += np.einsum(equation,*operands)
-                    
-            dzdt = J.T@z 
+
+                    dgdz += np.einsum(equation,*operands)
+
+            dxidt += dgdz.T@xi
             
-        return dzdt
-    
-    
-        
+            dhdzT = -fcdot(t) * operators[-2]
+
+            for (i, k) in enumerate(self.poly_comp):
+                
+                combs = list(combinations(self.einsum_ss_rhs_shift_speed_numer[i][1:],r=k-1))
+                operands = [operators[i + len(self.poly_comp)]] + [fz(t) for _ in range(k-1)]
+                for comb in combs:
+                    equation = [self.einsum_ss_rhs_shift_speed_numer[i][0]] + list(comb)
+                    equation = ",".join(equation)
+
+                    dhdzT -= np.einsum(equation,*operands)
+
+            dxidt += (dhdzT/self.compute_shift_speed_denom(fz(t), operators)) * (np.einsum('i,i', fz(t), PhiF_dx.T@Psi@xi) + const)
+
+        return dxidt
+
     
 
         

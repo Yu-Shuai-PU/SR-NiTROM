@@ -174,8 +174,6 @@ M = manifolds.Product([Gr,St,Euc_rr,Euc_rrrr])
 cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
 
 
-
-
 #%%
 
 # weights = pool.weights.copy()

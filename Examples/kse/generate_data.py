@@ -7,7 +7,8 @@ from scipy.interpolate import interp1d
 from scipy.integrate import solve_ivp
 import sys
 import os
-
+plt.rcParams.update({"font.family":"serif","font.sans-serif":["Computer Modern"],'font.size':18,'text.usetex':True})
+plt.rc('text.latex',preamble=r'\usepackage{amsmath}')
 sys.path.append("../../PyManopt_Functions/")
 sys.path.append("../../Optimization_Functions/")
 
@@ -19,8 +20,12 @@ nx = 40
 x = np.linspace(0, L, num=nx, endpoint=False)
 nu = 4/87
 
-fom = fom_class_kse.KSE(L, nu, nx)
+sol_template = np.cos(x)
+sol_template_dx = -np.sin(x)
 
+fom = fom_class_kse.KSE(L, nu, nx, sol_template, sol_template_dx)
+
+dx = x[1] - x[0]
 dt = 1e-3
 T = 10
 time = dt * np.linspace(0, int(T/dt), int(T/dt) + 1, endpoint=True)
@@ -39,12 +44,17 @@ fname_sol_init = data_path + "sol_init_%03d.npy" # for initial condition of u
 fname_sol_init_fitted = data_path + "sol_init_fitted_%03d.npy" # for initial condition of u fitted
 fname_sol = sol_path + "sol_%03d.npy" # for u
 fname_sol_fitted = sol_path + "sol_fitted_%03d.npy" # for u fitted
-fname_weight = sol_path + "weight_%03d.npy"
+fname_weight_sol = sol_path + "weight_sol_%03d.npy"
+fname_weight_shift_amount = sol_path + "weight_shift_amount_%03d.npy"
 fname_rhs = sol_path + "rhs_%03d.npy" # for du/dt
 fname_rhs_fitted = sol_path + "rhs_fitted_%03d.npy" # for du/dt fitted
 fname_shift_amount = sol_path + "shift_amount_%03d.npy" # for shifting amount
 fname_shift_speed = sol_path + "shift_speed_%03d.npy" # for shifting speed
 fname_time = sol_path + "time.npy"
+
+# load the final snapshot of FOM solution and save it as initial condition
+# sol_FOM = np.load("./solutions/sol_000.npy")
+# np.save(fname_sol_init%0,sol_FOM[:,-1])
 
 #%% # Generate and save initial conditions
 
@@ -59,27 +69,26 @@ n_sol = 1
 pool_inputs = (MPI.COMM_WORLD, n_sol)
 pool = classes.mpi_pool(*pool_inputs)
 
-sol_template = np.cos(x)
-sol_template_dx = -np.sin(x)
-
 for k in range (pool.my_n_sol):
 
     sol_idx = k + pool.disps[pool.rank]
     print("Running simulation %d/%d"%(sol_idx,n_sol))
     sol_IC = np.load(fname_sol_init%sol_idx).reshape(-1)
-
+    # sol_IC = -np.sin(x) + 2 * np.cos(2 * x) + 3 * np.cos(3 * x) - 4 * np.sin(4 * x)
+    
     sol, tsave = tstep_kse_fom.time_step(sol_IC, nsave)
-    sol_fitted, shift_amount = fom_class_kse.template_fitting(sol, sol_template, L, nx)
+    sol_fitted, shift_amount = fom.template_fitting(sol, sol_template)
     sol_IC_fitted = sol_fitted[:,0]
     rhs = np.zeros_like(sol)
     rhs_fitted = np.zeros_like(sol_fitted)
     shift_speed = np.zeros_like(shift_amount)
     for j in range (sol.shape[-1]):
         rhs[:,j] = fom.evaluate_fom_rhs(0.0, sol[:,j], np.zeros(sol.shape[0]))
-        rhs_fitted[:, j] = fom_class_kse.shift(rhs[:,j], -shift_amount[j], L)
+        rhs_fitted[:, j] = fom.shift(rhs[:,j], -shift_amount[j])
         sol_fitted_slice_dx = fom.take_derivative(sol_fitted[:,j], order = 1)
-        shift_speed[j] = fom_class_kse.compute_shift_speed_FOM(rhs_fitted[:,j], sol_fitted_slice_dx, sol_template_dx)
-    weight = np.mean(np.linalg.norm(rhs,axis=0)**2)
+        shift_speed[j] = fom.evaluate_fom_shift_speed(rhs_fitted[:,j], sol_fitted_slice_dx)
+    weight_sol = np.mean(np.linalg.norm(sol,axis=0)**2 * dx)
+    weight_shift_amount = np.mean((shift_amount - shift_amount[0])**2)
 
     np.save(fname_sol_init%sol_idx,sol_IC)
     np.save(fname_sol_init_fitted%sol_idx,sol_IC_fitted)
@@ -89,7 +98,8 @@ for k in range (pool.my_n_sol):
     np.save(fname_rhs_fitted%sol_idx,rhs_fitted)
     np.save(fname_shift_amount%sol_idx,shift_amount)
     np.save(fname_shift_speed%sol_idx,shift_speed)
-    np.save(fname_weight%sol_idx,weight)
+    np.save(fname_weight_sol%sol_idx,weight_sol)
+    np.save(fname_weight_shift_amount%sol_idx,weight_shift_amount)
 
 np.save(sol_path + "time.npy",tsave)
 
@@ -98,6 +108,8 @@ plt.contourf(x,tsave,sol.T)
 plt.colorbar()
 plt.xlabel(r"$x$")
 plt.ylabel(r"$t$")
-plt.title(r"KSE FOM")
 plt.tight_layout()
-plt.show()  
+plt.show()
+
+# print the final shift amount
+print("Final shift amount: %.4f"%(shift_amount[-1]))  

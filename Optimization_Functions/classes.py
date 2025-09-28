@@ -211,6 +211,9 @@ class optimization_objects:
         self.shift_speed = self.shift_speed[:,which_times]
         self.time = mpi_pool.time[which_times]
         
+        self.weight_sol = np.mean(np.linalg.norm(self.sol,axis=1)**2,axis=1)
+        self.weight_shift_amount = np.mean((self.shift_amount - self.shift_amount[0])**2)
+
         self.my_n_traj, _, self.n_snapshots = self.sol.shape
         self.leggauss_deg = leggauss_deg
         self.nsave_rom = nsave_rom
@@ -232,6 +235,7 @@ class optimization_objects:
         self.weight_shift_amount *= np.sum(counts)*self.n_snapshots * self.relative_weight
         
         self.sol_template_dx = kwargs.get('sol_template_dx',None)
+        self.sol_template_dxx = kwargs.get('sol_template_dxx',None)
         self.take_derivative = kwargs.get('spatial_derivative_method',None)
         self.inner_product = kwargs.get('inner_product_method',None)
         self.outer_product = kwargs.get('outer_product_method',None)
@@ -287,7 +291,7 @@ class optimization_objects:
         
         self.einsum_ss_rhs_shift_speed_numer = tuple(ss)
 
-    def evaluate_rom_rhs(self,t,ac,u,*operators,**kwargs):
+    def evaluate_rom_rhs(self,t,zc,u,*operators,**kwargs):
         """
             Function that can be fed into scipys solve_ivp. 
             t:          time instance
@@ -298,45 +302,46 @@ class optimization_objects:
             Optional keyword arguments:
                 'forcing_interp':   a scipy interpolator f that gives us a forcing f(t)
         """
-        a = ac[:-1]
-        c = ac[-1]
+        z = zc[:-1]
 
-        if np.linalg.norm(a) >= 1e4:
-            dzdt = 0.0*a
+        if np.linalg.norm(z) >= 1e4:
+            dzdt = 0.0*z
+            dcdt = 0.0
+            raise ValueError ("The norm of the state vector is too large!")
         else:
             f = kwargs.get('forcing_interp',None)
-            f = f(t) if f != None else np.zeros(len(a))
+            f = f(t) if f != None else np.zeros(len(z))
             u = u.copy() if hasattr(u,"__len__") == True else u(t)
             dzdt = u + f
             
             cdot_denom_linear = operators[-2]
             udx_linear = operators[-1]
-            cdot_denom = np.einsum('i,i',cdot_denom_linear,a)
+            cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
             if abs(cdot_denom) < 1e-4:
                 raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
-            udx = np.einsum('ij, j', udx_linear,a)
+            udx = np.einsum('ij, j', udx_linear,z)
 
             cdot_numer = 0.0
             
             for (i, k) in enumerate(self.poly_comp):
                 equation = ",".join(self.einsum_ss_rhs_poly[i])
-                operands = [operators[i]] + [a for _ in range(k)]
+                operands = [operators[i]] + [z for _ in range(k)]
                 dzdt += np.einsum(equation,*operands)
                 equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
-                operands = [operators[i + len(self.poly_comp)]] + [a for _ in range(k)]
+                operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
                 cdot_numer -= np.einsum(equation,*operands)
                 
-            dzdt = dzdt + (cdot_numer/cdot_denom) * udx
+            dzdt += (cdot_numer/cdot_denom) * udx
             dcdt = cdot_numer/cdot_denom
             
         return np.hstack((dzdt, dcdt))
 
-    def compute_shift_speed(self, a, operators):
+    def compute_shift_speed(self, z, operators):
         """
-            Function to compute the shift speed given a state a and the ROM operators
+            Function to compute the shift speed given a state z and the ROM operators
         """
         cdot_denom_linear = operators[-2]
-        cdot_denom = np.einsum('i,i',cdot_denom_linear,a)
+        cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
         if abs(cdot_denom) < 1e-4:
             raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
         
@@ -344,17 +349,17 @@ class optimization_objects:
         
         for (i, k) in enumerate(self.poly_comp):
             equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
-            operands = [operators[i + len(self.poly_comp)]] + [a for _ in range(k)]
+            operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
             cdot_numer -= np.einsum(equation,*operands)
 
         return cdot_numer/cdot_denom
-    
-    def compute_shift_speed_denom(self, a, operators):
+
+    def compute_shift_speed_denom(self, z, operators):
         """
-            Function to compute the denominator of the shift speed given a state a and the ROM operators
+            Function to compute the denominator of the shift speed given a state z and the ROM operators
         """
         cdot_denom_linear = operators[-2]
-        cdot_denom = np.einsum('i,i',cdot_denom_linear,a)
+        cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
         if abs(cdot_denom) < 1e-4:
             raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
         

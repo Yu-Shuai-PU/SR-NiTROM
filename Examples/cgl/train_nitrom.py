@@ -70,8 +70,9 @@ fname_time = traj_path + "time.npy"
 
 n_traj = 8
 
-pool_inputs = (MPI.COMM_WORLD, n_traj, fname_traj, fname_time)
-pool_kwargs = {'fname_weights':fname_weight}
+pool_inputs = (MPI.COMM_WORLD, n_traj)
+pool_kwargs = {'fname_time':fname_time, 'fname_sol': fname_traj,
+               'fname_weight':fname_weight,'fname_rhs':fname_deriv}
 pool = classes.mpi_pool(*pool_inputs,**pool_kwargs)
 
 
@@ -92,7 +93,7 @@ tensors_oi = (A2_oi,A4_oi)
 # tensors_nit = (A2_nit,A4_nit)
 
 
-which_trajs = np.arange(0,pool.my_n_traj,1)
+which_trajs = np.arange(0,pool.my_n_sol,1)
 which_times = np.arange(0,pool.n_snapshots,1)
 leggauss_deg = 5
 nsave_rom = 10

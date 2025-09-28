@@ -3,6 +3,7 @@ import scipy as sp
 import math
 from string import ascii_lowercase as ascii
 from mpi4py import MPI
+import matplotlib.pyplot as plt
 
 def compute_indices(c_ls=[], c=0, idx=5, r=5, order=0):
     
@@ -12,17 +13,15 @@ def compute_indices(c_ls=[], c=0, idx=5, r=5, order=0):
         else:               c_ls = compute_indices(c_ls,ci,i+1,r,order-1)
     return c_ls
 
-def perform_POD(pool,r):
-    
-    X = pool.sol_fitted
-    
+def perform_POD(pool,opt_obj,r):
+
+    X = np.ascontiguousarray(opt_obj.sol_fitted, dtype=np.double)
+
     N_space = X.shape[1]
-    N_snapshots = pool.n_snapshots
-    
-    X = X.transpose(1, 0, 2).reshape(N_space, -1)
+    N_snapshots = opt_obj.n_snapshots
 
     if pool.rank == 0:
-        X_all = np.empty((N_space,N_snapshots * pool.n_sol))
+        X_all = np.empty((pool.n_sol, N_space, N_snapshots))
     else:
         X_all = None
 
@@ -33,6 +32,14 @@ def perform_POD(pool,r):
                       recvbuf = [X_all, my_counts, my_disps, MPI.DOUBLE], root=0)
     
     if pool.rank == 0:
+        X_all = X_all.transpose(1,0,2).reshape(N_space,-1)
+        plt.figure(figsize=(10,6))
+        plt.contourf(X_all.T)
+        plt.colorbar()
+        plt.xlabel(r"$x$")
+        plt.ylabel(r"$t$")
+        plt.tight_layout()
+        plt.show()
         U, S, _ = sp.linalg.svd(X_all, full_matrices=False)
         Phi = U[:,:r]
         cumulative_energy_proportion = 100 * np.cumsum(S[:r]**2) / np.sum(S**2)

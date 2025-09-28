@@ -107,7 +107,8 @@ plt.gca().set_yscale('log')
 #%% Compute POD ROM
 
 pool_inputs = (MPI.COMM_WORLD, n_traj, fname_traj, fname_time)
-pool_kwargs = {'fname_weights':fname_weight,'fname_derivs':fname_deriv}
+pool_kwargs = {'fname_time':fname_time, 'fname_sol': fname_traj,
+               'fname_weight':fname_weight,'fname_rhs':fname_deriv}
 pool = classes.mpi_pool(*pool_inputs,**pool_kwargs)
 
 
@@ -211,7 +212,7 @@ line_searcher = myAdaptiveLineSearcher(contraction_factor=0.4,sufficient_decreas
 point = (Phi_pod,Phi_pod) + tensors_oi
 
 k0 = 0
-kouter = 20
+kouter = 5
 
 
 if k0 == 0:

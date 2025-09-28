@@ -65,6 +65,9 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
             e_c   = c - opt_obj.shift_amount[k,:]
             
             J += (1./opt_obj.weight_sol[k])*np.trace(e_sol.T@e_sol) + (1./opt_obj.weight_shift_amount[k])*np.dot(e_c,e_c)
+            # print('sol_error = %1.5e, c_error = %1.5e'%(np.trace(e_sol.T@e_sol),np.dot(e_c,e_c)))
+            # print('sol_weight = %1.5e, c_weight = %1.5e'%(1./opt_obj.weight_sol[k],1./opt_obj.weight_shift_amount[k]))
+            # print('sol_normalized_error = %1.5e, c_normalized_error = %1.5e'%((1./opt_obj.weight_sol[k])*np.trace(e_sol.T@e_sol),(1./opt_obj.weight_shift_amount[k])*np.dot(e_c,e_c)))
         
         # if opt_obj.l2_pen != None and mpi_pool.rank == 0:
         #     idx = opt_obj.poly_comp.index(1)    # index of the linear tensor
@@ -102,7 +105,7 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
         cdot_denom_linear = np.zeros(r)
         udx_linear = Psi.T @ PhiF_dx
         u0_dx = opt_obj.sol_template_dx
-        u0_dxx = opt_obj.take_derivative(u0_dx, order=1)
+        u0_dxx = opt_obj.sol_template_dxx
         
         for i in range(r):
             cdot_denom_linear[i] = opt_obj.inner_product(u0_dx, PhiF_dx[:, i])
@@ -116,7 +119,7 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
         grad_tensors_trainable = [0]*len(tensors_trainable)
         
         # Initialize arrays needed for future computations
-        xi_j_0 = np.zeros(r)
+        xi_j_0 = np.zeros(r) # xi is the sum of lambda from j to N_t - 1; xi_j(t) = sum_{i = j}^{N_t - 1} lambda_i(t)
         Int_cdot_xi_z_j = np.zeros((r,r))
         Int_eta_cdot_u0dxx_outer_z_j_cdot_denom = np.zeros((n,r))
         Int_eta_cdot_z_j_outer_u0_dx_cdot_denom = np.zeros((r,n))   
@@ -144,7 +147,6 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
             z   = output[:-1,:]
             sol = PhiF@z
             c   = output[-1,:]
-            # cdot = np.array([opt_obj.compute_shift_speed(z[:,i], tensors) for i in range(opt_obj.n_snapshots)])
             
             e_sol = sol - opt_obj.sol_fitted[k,:,:]
             e_c   = c - opt_obj.shift_amount[k,:]
@@ -164,7 +166,7 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
                 grad_Phi += (2/opt_obj.weight_sol[k]) * np.einsum('i,j', e_sol_j, z_j)
                 grad_Psi -= (2/opt_obj.weight_sol[k]) * np.einsum('i,j',PhiF@z_j, PhiF.T@e_sol_j)
 
-                id1 = opt_obj.n_snapshots - 1 - j # id1 is from N_t - 1 to 1
+                id1 = opt_obj.n_snapshots - j - 1 # id1 is from N_t - 1 to 1
                 id0 = id1 - 1                     # id0 is from N_t - 2 to 0
                 
                 tf_j = opt_obj.time[id1] # from t_{N_t - 1} to t_1
@@ -242,6 +244,7 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
                         
             e_sol_0 = e_sol[:,0]
             z_0     = z[:,0]
+            xi_j_0  -= (2/opt_obj.weight_sol[k])*PhiF.T@e_sol_0 
             grad_Phi += (2/opt_obj.weight_sol[k])*np.einsum('i,j', e_sol_0, z_0)
             grad_Phi = (Proj_perp @ grad_Phi) @ F.T
             grad_Psi -= (2/opt_obj.weight_sol[k])*np.einsum('i,j', PhiF@z_0, PhiF.T@e_sol_0) - np.einsum('i,j', opt_obj.sol_fitted[k,:,0], xi_j_0)

@@ -27,7 +27,7 @@ fom = fom_class_kse.KSE(L, nu, nx, sol_template, sol_template_dx)
 
 dx = x[1] - x[0]
 dt = 1e-3
-T = 10
+T = 90
 time = dt * np.linspace(0, int(T/dt), int(T/dt) + 1, endpoint=True)
 tstep_kse_fom = fom_class_kse.time_step_kse(fom, time)
 
@@ -70,11 +70,11 @@ pool_inputs = (MPI.COMM_WORLD, n_sol)
 pool = classes.mpi_pool(*pool_inputs)
 
 for k in range (pool.my_n_sol):
-
     sol_idx = k + pool.disps[pool.rank]
     print("Running simulation %d/%d"%(sol_idx,n_sol))
-    sol_IC = np.load(fname_sol_init%sol_idx).reshape(-1)
-    # sol_IC = -np.sin(x) + 2 * np.cos(2 * x) + 3 * np.cos(3 * x) - 4 * np.sin(4 * x)
+    # sol_IC = np.load(fname_sol_init%sol_idx).reshape(-1)
+    sol_IC = -np.sin(x) + 2 * np.cos(2 * x) + 3 * np.cos(3 * x) - 4 * np.sin(4 * x)
+    # sol_IC = np.loadtxt(data_path + "initial_condition_time_80.txt").reshape(-1)
     
     sol, tsave = tstep_kse_fom.time_step(sol_IC, nsave)
     sol_fitted, shift_amount = fom.template_fitting(sol, sol_template)
@@ -87,7 +87,7 @@ for k in range (pool.my_n_sol):
         rhs_fitted[:, j] = fom.shift(rhs[:,j], -shift_amount[j])
         sol_fitted_slice_dx = fom.take_derivative(sol_fitted[:,j], order = 1)
         shift_speed[j] = fom.evaluate_fom_shift_speed(rhs_fitted[:,j], sol_fitted_slice_dx)
-    weight_sol = np.mean(np.linalg.norm(sol,axis=0)**2 * dx)
+    weight_sol = np.mean(np.linalg.norm(sol,axis=0)**2)
     weight_shift_amount = np.mean((shift_amount - shift_amount[0])**2)
 
     np.save(fname_sol_init%sol_idx,sol_IC)

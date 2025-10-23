@@ -51,7 +51,7 @@ class myAdaptiveLineSearcher:
             cost_evaluations = 1
 
             while (
-                newf > 1.01*f0 and cost_evaluations <= self._max_iterations
+                newf > (1.0 + self._sufficient_decrease)*f0 and cost_evaluations <= self._max_iterations
             ):
                 # Reduce the step size.
                 alpha *= self._contraction_factor

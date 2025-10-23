@@ -43,6 +43,8 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
         tensors = tensors_trainable + (cdot_denom_linear, udx_linear)
 
         J = 0.0
+        J_sol = 0.0
+        J_c = 0.0
         for k in range (opt_obj.my_n_traj): 
 
             # Integrate the reduced-order model from time t = 0 to the final time 
@@ -52,7 +54,7 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
             u = Psi.T@(opt_obj.f_ext_steady[k,:].reshape(-1))
             
             output = solve_ivp(opt_obj.evaluate_rom_rhs,
-                            [0,opt_obj.time[-1]],
+                            [opt_obj.time[0],opt_obj.time[-1]],
                             np.hstack((z_IC, c_IC)),
                             method='RK45',
                             t_eval=opt_obj.time,
@@ -64,6 +66,11 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
             e_sol = PhiF@sol - opt_obj.sol_fitted[k,:,:]
             e_c   = c - opt_obj.shift_amount[k,:]
             
+            J_sol += (1./opt_obj.weight_sol[k])*np.trace(e_sol.T@e_sol)
+            J_c += (1./opt_obj.weight_shift_amount[k])*np.dot(e_c,e_c)
+
+            # print('Trajectory %d/%d: sol_error = %1.5e, c_error = %1.5e'%(k+1,opt_obj.my_n_traj,J_sol,J_c))
+
             J += (1./opt_obj.weight_sol[k])*np.trace(e_sol.T@e_sol) + (1./opt_obj.weight_shift_amount[k])*np.dot(e_c,e_c)
             # print('sol_error = %1.5e, c_error = %1.5e'%(np.trace(e_sol.T@e_sol),np.dot(e_c,e_c)))
             # print('sol_weight = %1.5e, c_weight = %1.5e'%(1./opt_obj.weight_sol[k],1./opt_obj.weight_shift_amount[k]))
@@ -78,7 +85,12 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
         #     J += opt_obj.l2_pen*np.dot(Z[:,-1],Z[:,-1])
             
         J = np.sum(np.asarray(mpi_pool.comm.allgather(J)))
-        
+        J_sol = np.sum(np.asarray(mpi_pool.comm.allgather(J_sol)))
+        J_c = np.sum(np.asarray(mpi_pool.comm.allgather(J_c)))
+
+        if mpi_pool.rank == 0:
+            print("  Cost: %.4e = %.4e + %.4e"%(J, J_sol, J_c))
+
         return J
 
     @pymanopt.function.numpy(manifold)
@@ -138,7 +150,7 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
             u = Psi.T@(opt_obj.f_ext_steady[k,:].reshape(-1))
             
             output = solve_ivp(opt_obj.evaluate_rom_rhs,
-                            [0,opt_obj.time[-1]],
+                            [opt_obj.time[0],opt_obj.time[-1]],
                             np.hstack((z_IC, c_IC)),
                             method='RK45',
                             t_eval=opt_obj.time,

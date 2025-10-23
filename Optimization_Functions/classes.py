@@ -49,11 +49,32 @@ class mpi_pool:
         
     def load_data(self):
         self.time = np.load(self.kwargs.get('fname_time', None))
+        self.load_template(self.kwargs)
         self.load_sol(self.kwargs)
         self.load_rhs(self.kwargs)
         self.load_shift(self.kwargs)
         self.load_weight(self.kwargs)
         self.load_steady_forcing(self.kwargs)
+        
+    def load_template(self,kwargs):
+        
+        fname_sol_template = kwargs.get('fname_sol_template',None)
+        if fname_sol_template == None:
+            raise ValueError ("Need a valid fname_sol_template path where you store your solution template")
+        else:
+            self.sol_template = np.load(fname_sol_template)
+            
+        fname_sol_template_dx = kwargs.get('fname_sol_template_dx',None)
+        if fname_sol_template_dx == None:
+            raise ValueError ("Need a valid fname_sol_template_dx path where you store your solution template derivative")
+        else:
+            self.sol_template_dx = np.load(fname_sol_template_dx)
+            
+        fname_sol_template_dxx = kwargs.get('fname_sol_template_dxx',None)
+        if fname_sol_template_dxx == None:
+            raise ValueError ("Need a valid fname_sol_template_dxx path where you store your solution template second derivative")
+        else:
+            self.sol_template_dxx = np.load(fname_sol_template_dxx)
 
     def load_sol(self,kwargs):
         
@@ -211,9 +232,6 @@ class optimization_objects:
         self.shift_speed = self.shift_speed[:,which_times]
         self.time = mpi_pool.time[which_times]
         
-        self.weight_sol = np.mean(np.linalg.norm(self.sol,axis=1)**2,axis=1)
-        self.weight_shift_amount = np.mean((self.shift_amount - self.shift_amount[0])**2)
-
         self.my_n_traj, _, self.n_snapshots = self.sol.shape
         self.leggauss_deg = leggauss_deg
         self.nsave_rom = nsave_rom
@@ -231,8 +249,13 @@ class optimization_objects:
         
         # Parse the keyword arguments
         self.relative_weight = kwargs.get('relative_weight',1.0)
+        
+        for idx in range(self.my_n_traj):
+            self.weight_sol[idx] = np.mean(np.linalg.norm(self.sol[idx,:,:],axis=0)**2)
+            self.weight_shift_amount[idx] = np.mean((self.shift_amount[idx,:] - self.shift_amount[idx,0])**2)        
+        
         self.weight_sol *= np.sum(counts)*self.n_snapshots
-        self.weight_shift_amount *= np.sum(counts)*self.n_snapshots * self.relative_weight
+        self.weight_shift_amount *= np.sum(counts)*self.n_snapshots / self.relative_weight
         
         self.sol_template_dx = kwargs.get('sol_template_dx',None)
         self.sol_template_dxx = kwargs.get('sol_template_dxx',None)
@@ -317,8 +340,11 @@ class optimization_objects:
             cdot_denom_linear = operators[-2]
             udx_linear = operators[-1]
             cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
+            # print("cdot_denom:", cdot_denom)
             if abs(cdot_denom) < 1e-4:
                 raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
+                # print("Denominator in reconstruction equation of the shifting speed is too close to zero!")
+                # cdot_denom = 1e-2 * np.sign(cdot_denom)
             udx = np.einsum('ij, j', udx_linear,z)
 
             cdot_numer = 0.0
@@ -333,7 +359,10 @@ class optimization_objects:
                 
             dzdt += (cdot_numer/cdot_denom) * udx
             dcdt = cdot_numer/cdot_denom
-            
+
+            # if abs(dcdt) > 1e4:
+            #     raise ValueError ("The shift speed is too large!")
+                
         return np.hstack((dzdt, dcdt))
 
     def compute_shift_speed(self, z, operators):
@@ -353,6 +382,19 @@ class optimization_objects:
             cdot_numer -= np.einsum(equation,*operands)
 
         return cdot_numer/cdot_denom
+    
+    def compute_shift_speed_numer(self, z, operators):
+        """
+            Function to compute the shift speed given a state z and the ROM operators
+        """
+        cdot_numer = 0.0
+        
+        for (i, k) in enumerate(self.poly_comp):
+            equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
+            operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
+            cdot_numer -= np.einsum(equation,*operands)
+
+        return cdot_numer
 
     def compute_shift_speed_denom(self, z, operators):
         """

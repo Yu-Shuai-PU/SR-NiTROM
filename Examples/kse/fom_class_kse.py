@@ -27,7 +27,7 @@ def compute_shift_speed_FOM(rhs_fitted, sol_fitted_dx, sol_template_dx):
 
 class KSE:
 
-    def __init__(self, L, nu, nx, u_template, u_template_dx):
+    def __init__(self, L, nu, nx, u_template = None, u_template_dx = None):
         self.L = L
         self.nu = nu
         self.nx = nx
@@ -200,6 +200,14 @@ class KSE:
             raise ValueError("Denominator in computing FOM shift speed is too small!")
         else:
             return cdot_numer / cdot_denom
+        
+    def evaluate_fom_shift_speed_numer(self, rhs_fitted):
+        """Evaluate the shift speed for the FOM."""
+        return - self.inner_product(rhs_fitted, self.u_template_dx)
+    
+    def evaluate_fom_shift_speed_denom(self, u_fitted_dx):
+        """Evaluate the shift speed for the FOM."""
+        return self.inner_product(u_fitted_dx, self.u_template_dx)
 
     def assemble_petrov_galerkin_tensors(self, Phi, Psi):
         """Assemble the Petrov-Galerkin projection matrices."""
@@ -216,11 +224,13 @@ class KSE:
         PhiF_dx = self.take_derivative(PhiF, order=1)
         
         u0_dx = self.u_template_dx
+        # u0_dxx = - self.u_template
 
         M_mat = Psi.T @ PhiF_dx
         for i in range(r):
             p_vec[i] = self.inner_product(u0_dx, self.linear(PhiF[:, i]))
             s_vec[i] = self.inner_product(u0_dx, PhiF_dx[:, i])
+            # s_vec[i] = - self.inner_product(u0_dxx, PhiF[:, i])
             for j in range(r):
                 A_mat[i, j] = np.dot(Psi[:, i], self.linear(PhiF[:, j]))
                 Q_mat[i, j] = self.inner_product(u0_dx, self.bilinear(PhiF[:, i], PhiF[:, j]))

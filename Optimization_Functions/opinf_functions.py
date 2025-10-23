@@ -33,15 +33,15 @@ def perform_POD(pool,opt_obj,r):
     
     if pool.rank == 0:
         X_all = X_all.transpose(1,0,2).reshape(N_space,-1)
-        plt.figure(figsize=(10,6))
-        plt.contourf(X_all.T)
-        plt.colorbar()
-        plt.xlabel(r"$x$")
-        plt.ylabel(r"$t$")
-        plt.tight_layout()
-        plt.show()
+        # plt.figure(figsize=(10,6))
+        # plt.contourf(X_all.T)
+        # plt.colorbar()
+        # plt.xlabel(r"$x$")
+        # plt.ylabel(r"$t$")
+        # plt.tight_layout()
+        # plt.show()
         U, S, _ = sp.linalg.svd(X_all, full_matrices=False)
-        Phi = U[:,:r]
+        Phi = np.ascontiguousarray(U[:,:r])
         cumulative_energy_proportion = 100 * np.cumsum(S[:r]**2) / np.sum(S**2)
     else:
         Phi = np.empty((N_space,r))

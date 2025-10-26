@@ -12,8 +12,8 @@ import pymanopt
 import pymanopt.manifolds as manifolds
 import pymanopt.optimizers as optimizers
 from pymanopt.tools.diagnostics import check_gradient
-plt.rcParams.update({"font.family":"serif","font.sans-serif":["Computer Modern"],'font.size':18,'text.usetex':True})
-plt.rc('text.latex',preamble=r'\usepackage{amsmath}')
+# plt.rcParams.update({"font.family":"serif","font.sans-serif":["Computer Modern"],'font.size':18,'text.usetex':True})
+# plt.rc('text.latex',preamble=r'\usepackage{amsmath}')
 
 sys.path.append("../../PyManopt_Functions/")
 sys.path.append("../../Optimization_Functions/")
@@ -25,8 +25,8 @@ import opinf_functions as opinf_fun
 import troop_functions
 import fom_class_kse
 
-cPOD, cOI, cTR, cOPT = '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3'
-lPOD, lOI, lTR, lOPT = 'solid', 'dotted', 'dashed', 'dashdot'
+# cPOD, cOI, cTR, cOPT = '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3'
+# lPOD, lOI, lTR, lOPT = 'solid', 'dotted', 'dashed', 'dashdot'
 
 #%% # Instantiate KSE class and KSE time-stepper class
 
@@ -69,16 +69,18 @@ pool.load_data()
 # but we train the bases and tensors only on the trajectory segments truncated in time.
 # It's a curriculum learning strategy in a way: learn on short-term dynamics first, then extend to long-term dynamics.
 
-initialization = "POD-Galerkin" # "POD-Galerkin" or "Previous NiTROM"
-# initialization = "Previous NiTROM"
-r = 7
-relative_weight = 10
+# initialization = "POD-Galerkin" # "POD-Galerkin" or "Previous NiTROM"
+initialization = "Previous NiTROM"
+training_objects = "tensors_and_bases" 
+# training_objects = "tensors"
+r = 8
+relative_weight = 1
 k0 = 0
-kouter = 10
+kouter = 20
 kinner_basis = 5
 kinner_tensor = 5
 initial_step_size_basis = 1e-2
-initial_step_size_tensor = 1e-4
+initial_step_size_tensor = 1e-3
 sufficient_decrease_rate_basis = 1e-4
 sufficient_decrease_rate_tensor = 1e-3
 contraction_factor_tensor = 0.5
@@ -88,16 +90,15 @@ leggauss_deg = 5
 nsave_rom = 11
 poly_comp = [1, 2] # polynomial degree for the ROM dynamics
 snapshot_start_time_POD = 0
-snapshot_end_time_POD = pool.n_snapshots
+snapshot_end_time_POD = pool.n_snapshots # 1001
 snapshot_start_time_NiTROM_training = 0
-snapshot_end_time_NiTROM_training = 1 + int(2 * (pool.n_snapshots - 1) // 10)
+snapshot_end_time_NiTROM_training = 1 + int(10 * (pool.n_snapshots - 1) // 10)
 
 # snapshot_start_time = 3 * (pool.n_snapshots - 1) // 9
 # snapshot_end_time = 4 * (pool.n_snapshots - 1) // 9 + 1
 # sol_template     = np.cos(x)
 # sol_template_dx  = -np.sin(x)
 # sol_template_dxx = -np.cos(x)
-
 
 # # 2. 如果当前处理器的 rank 不是 0，则重定向其标准输出
 if pool.rank != 0:
@@ -342,8 +343,6 @@ M = manifolds.Product([Gr_Phi, Gr_Psi, Euc_A, Euc_B, Euc_p, Euc_Q])
 cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
 
 # Choose between POD-Galerkin initialization and previous training results
-# 
-# point = (Phi_POD, Psi_POD) + Tensors_POD[:-2]
 if initialization == "POD-Galerkin":
     print("Loading POD-Galerkin results as initialization")
     point = (Phi_POD, Psi_POD) + Tensors_POD[:-2]
@@ -368,29 +367,31 @@ if k0 == 0:
     gradvec_NiTROM = []
 
 for k in range(k0, k0 + kouter):
-    
-    if np.mod(k, 2) == 0:
+
+    if training_objects == "tensors_and_bases":
+
+        if np.mod(k, 2) == 0:
+            which_fix = 'fix_bases'
+            inner_iter = kinner_tensor
+            line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor_tensor, # how much to reduce the step size in each iteration
+                                            sufficient_decrease = sufficient_decrease_rate_tensor, # how much decrease is enough to accept the step
+                                            max_iterations = max_iterations,
+                                            initial_step_size = initial_step_size_tensor)
+        else:
+            which_fix = 'fix_tensors'
+            inner_iter = kinner_basis
+            line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor_basis, # how much to reduce the step size in each iteration
+                                            sufficient_decrease = sufficient_decrease_rate_basis, # how much decrease is enough to accept the step
+                                            max_iterations = max_iterations,
+                                            initial_step_size = initial_step_size_basis)
+    elif training_objects == "tensors":
+        # for the control group, always optimize the tensors
         which_fix = 'fix_bases'
         inner_iter = kinner_tensor
         line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor_tensor, # how much to reduce the step size in each iteration
                                         sufficient_decrease = sufficient_decrease_rate_tensor, # how much decrease is enough to accept the step
                                         max_iterations = max_iterations,
                                         initial_step_size = initial_step_size_tensor)
-    else:
-        which_fix = 'fix_tensors'
-        inner_iter = kinner_basis
-        line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor_basis, # how much to reduce the step size in each iteration
-                                        sufficient_decrease = sufficient_decrease_rate_basis, # how much decrease is enough to accept the step
-                                        max_iterations = max_iterations,
-                                        initial_step_size = initial_step_size_basis)
-        
-    # for the control group, always optimize the tensors
-    # which_fix = 'fix_bases'
-    # inner_iter = kinner_tensor
-    # line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor_tensor, # how much to reduce the step size in each iteration
-    #                                 sufficient_decrease = sufficient_decrease_rate_tensor, # how much decrease is enough to accept the step
-    #                                 max_iterations = max_iterations,
-    #                                 initial_step_size = initial_step_size_tensor)
     
     opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
     opt_obj_kwargs = {
@@ -648,13 +649,14 @@ if pool.rank == 0:
 ### plot the training error
 
 plt.figure(figsize=(8,6))
-plt.semilogy(costvec_NiTROM,'-o',color=cOPT,label='SR-NiTROM')
+# plt.semilogy(costvec_NiTROM,'-o',color=cOPT,label='SR-NiTROM')
+plt.semilogy(costvec_NiTROM,'-o',color='blue',label='SR-NiTROM')
 plt.xlabel('Iteration')
 plt.ylabel('Cost function')
 plt.title('Training error')
 plt.legend()
 plt.tight_layout()
-plt.savefig(fig_path + "training_error_NiTROM.png")
+plt.savefig(fig_path + f"training_error_NiTROM_start_time_{snapshot_start_time_NiTROM_training}_end_time_{snapshot_end_time_NiTROM_training}.png")
 plt.close()
 
 ### Save the training information

@@ -330,7 +330,8 @@ class optimization_objects:
         if np.linalg.norm(z) >= 1e4:
             dzdt = 0.0*z
             dcdt = 0.0
-            raise ValueError ("The norm of the state vector is too large!")
+            # raise ValueError ("The norm of the state vector is too large!")
+            print("Warning: The norm of the state vector is too large!")
         else:
             f = kwargs.get('forcing_interp',None)
             f = f(t) if f != None else np.zeros(len(z))
@@ -342,23 +343,26 @@ class optimization_objects:
             cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
             # print("cdot_denom:", cdot_denom)
             if abs(cdot_denom) < 1e-4:
-                raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
-                # print("Denominator in reconstruction equation of the shifting speed is too close to zero!")
+                # raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
+                print("Warning: Denominator in reconstruction equation of the shifting speed is too close to zero!")
+                dcdt = 0.0
                 # cdot_denom = 1e-2 * np.sign(cdot_denom)
-            udx = np.einsum('ij, j', udx_linear,z)
+                return np.hstack((dzdt, dcdt))
+            else:
+                udx = np.einsum('ij, j', udx_linear,z)
 
-            cdot_numer = 0.0
-            
-            for (i, k) in enumerate(self.poly_comp):
-                equation = ",".join(self.einsum_ss_rhs_poly[i])
-                operands = [operators[i]] + [z for _ in range(k)]
-                dzdt += np.einsum(equation,*operands)
-                equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
-                operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
-                cdot_numer -= np.einsum(equation,*operands)
+                cdot_numer = 0.0
                 
-            dzdt += (cdot_numer/cdot_denom) * udx
-            dcdt = cdot_numer/cdot_denom
+                for (i, k) in enumerate(self.poly_comp):
+                    equation = ",".join(self.einsum_ss_rhs_poly[i])
+                    operands = [operators[i]] + [z for _ in range(k)]
+                    dzdt += np.einsum(equation,*operands)
+                    equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
+                    operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
+                    cdot_numer -= np.einsum(equation,*operands)
+                    
+                dzdt += (cdot_numer/cdot_denom) * udx
+                dcdt = cdot_numer/cdot_denom
 
             # if abs(dcdt) > 1e4:
             #     raise ValueError ("The shift speed is too large!")
@@ -372,16 +376,18 @@ class optimization_objects:
         cdot_denom_linear = operators[-2]
         cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
         if abs(cdot_denom) < 1e-4:
-            raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
-        
-        cdot_numer = 0.0
-        
-        for (i, k) in enumerate(self.poly_comp):
-            equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
-            operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
-            cdot_numer -= np.einsum(equation,*operands)
+            # raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
+            print("Warning: Denominator in reconstruction equation of the shifting speed is too close to zero!")
+            return 0.0
+        else:
+            cdot_numer = 0.0
+            
+            for (i, k) in enumerate(self.poly_comp):
+                equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
+                operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
+                cdot_numer -= np.einsum(equation,*operands)
 
-        return cdot_numer/cdot_denom
+            return cdot_numer/cdot_denom
     
     def compute_shift_speed_numer(self, z, operators):
         """
@@ -403,9 +409,11 @@ class optimization_objects:
         cdot_denom_linear = operators[-2]
         cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
         if abs(cdot_denom) < 1e-4:
-            raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
-        
-        return cdot_denom
+            # raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
+            print("Warning: Denominator in reconstruction equation of the shifting speed is too close to zero!")
+            return 1e-4 * np.sign(cdot_denom)
+        else:
+            return cdot_denom
 
     def evaluate_rom_adjoint(self,t,xi,fz,fcdot, const, PhiF_dx,Psi, *operators):
         """

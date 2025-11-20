@@ -15,13 +15,13 @@ def compute_indices(c_ls=[], c=0, idx=5, r=5, order=0):
 
 def perform_POD(pool,opt_obj,r):
 
-    X = np.ascontiguousarray(opt_obj.sol_fitted, dtype=np.double)
+    X = np.ascontiguousarray(opt_obj.X_fitted, dtype=np.double)
 
     N_space = X.shape[1]
     N_snapshots = opt_obj.n_snapshots
 
     if pool.rank == 0:
-        X_all = np.empty((pool.n_sol, N_space, N_snapshots))
+        X_all = np.empty((pool.n_traj, N_space, N_snapshots))
     else:
         X_all = None
 

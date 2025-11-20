@@ -30,12 +30,12 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
         r = Phi.shape[1]
 
         PhiF = Phi@sp.linalg.inv(Psi.T@Phi)
-        PhiF_dx = opt_obj.take_derivative(PhiF, order=1)
+        PhiF_dx = opt_obj.spatial_deriv(PhiF, order=1)
         
         # Define operators derived from bases
         cdot_denom_linear = np.zeros(r)
         udx_linear = Psi.T @ PhiF_dx
-        u0_dx = opt_obj.sol_template_dx
+        u0_dx = opt_obj.X_template_dx
         
         for i in range(r):
             cdot_denom_linear[i] = opt_obj.inner_product(u0_dx, PhiF_dx[:, i])
@@ -43,53 +43,59 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
         tensors = tensors_trainable + (cdot_denom_linear, udx_linear)
 
         J = 0.0
-        J_sol = 0.0
+        J_X = 0.0
         J_c = 0.0
+        J_cdot = 0.0
         for k in range (opt_obj.my_n_traj): 
 
             # Integrate the reduced-order model from time t = 0 to the final time 
             # specified by the last snapshot in the training trajectory
-            z_IC = Psi.T@(opt_obj.sol_fitted[k,:,0].reshape(-1))
-            c_IC = opt_obj.shift_amount[k,0]
-            u = Psi.T@(opt_obj.f_ext_steady[k,:].reshape(-1))
-            
-            output = solve_ivp(opt_obj.evaluate_rom_rhs,
+            z0 = Psi.T@(opt_obj.X_fitted[k,:,0].reshape(-1))
+            u = Psi.T@(opt_obj.F[:,k].reshape(-1))
+            c0 = opt_obj.c[k,0]
+            sol = solve_ivp(opt_obj.evaluate_rom_rhs,
                             [opt_obj.time[0],opt_obj.time[-1]],
-                            np.hstack((z_IC, c_IC)),
+                            np.hstack((z0, c0)),
                             method='RK45',
                             t_eval=opt_obj.time,
                             args=(u,) + tensors).y
+            sol_z = sol[:-1,:]
+            sol_c = sol[-1,:]
+            sol_cdot = np.array([opt_obj.compute_shift_speed(sol_z[:,i], tensors) for i in range (opt_obj.n_snapshots)])
+            sol_X_fitted = PhiF@sol_z
             
-            sol = output[:-1,:]
-            c   = output[-1,:]
+            sol_X = np.zeros_like(sol_X_fitted)
+            for j in range (opt_obj.n_snapshots):
+                sol_X[:,j] = opt_obj.shift(sol_X_fitted[:,j], sol_c[j])
             
-            e_sol = PhiF@sol - opt_obj.sol_fitted[k,:,:]
-            e_c   = c - opt_obj.shift_amount[k,:]
+            e_X = opt_obj.X[k,:,:] - sol_X
+            e_c = opt_obj.c[k,:] - sol_c
+            e_cdot = opt_obj.cdot[k,:] - sol_cdot
             
-            J_sol += (1./opt_obj.weight_sol[k])*np.trace(e_sol.T@e_sol)
-            J_c += (1./opt_obj.weight_shift_amount[k])*np.dot(e_c,e_c)
+            error_X = np.sum(np.sum(e_X**2,axis=0) * opt_obj.weights_X[k,:])
+            error_c = np.sum(e_c**2 * opt_obj.weights_c[k,:])
+            error_cdot = np.sum(e_cdot**2 * opt_obj.weights_cdot[k,:])
+           
+            J_X += error_X
+            J_c   += error_c
+            J_cdot += error_cdot
+            J += error_X + error_c + error_cdot
 
-            # print('Trajectory %d/%d: sol_error = %1.5e, c_error = %1.5e'%(k+1,opt_obj.my_n_traj,J_sol,J_c))
-
-            J += (1./opt_obj.weight_sol[k])*np.trace(e_sol.T@e_sol) + (1./opt_obj.weight_shift_amount[k])*np.dot(e_c,e_c)
-            # print('sol_error = %1.5e, c_error = %1.5e'%(np.trace(e_sol.T@e_sol),np.dot(e_c,e_c)))
-            # print('sol_weight = %1.5e, c_weight = %1.5e'%(1./opt_obj.weight_sol[k],1./opt_obj.weight_shift_amount[k]))
-            # print('sol_normalized_error = %1.5e, c_normalized_error = %1.5e'%((1./opt_obj.weight_sol[k])*np.trace(e_sol.T@e_sol),(1./opt_obj.weight_shift_amount[k])*np.dot(e_c,e_c)))
-        
-        # if opt_obj.l2_pen != None and mpi_pool.rank == 0:
-        #     idx = opt_obj.poly_comp.index(1)    # index of the linear tensor
-        #     time_pen = np.linspace(0,opt_obj.pen_tf,opt_obj.n_snapshots*opt_obj.nsave_rom)
-        #     Z = (solve_ivp(lambda t,z: tensors[idx]@z if np.linalg.norm(z) < 1e4 else 0*z,\
-        #                    [0,time_pen[-1]],opt_obj.randic,method='RK45',t_eval=time_pen)).y
+        if opt_obj.l2_pen != None and mpi_pool.rank == 0:
+            idx = opt_obj.poly_comp.index(1)    # index of the linear tensor
+            time_pen = np.linspace(0,opt_obj.pen_tf,opt_obj.n_snapshots*opt_obj.nsave_rom)
+            Z = (solve_ivp(lambda t,z: tensors[idx]@z if np.linalg.norm(z) < 1e4 else 0*z,\
+                           [0,time_pen[-1]],opt_obj.randic,method='RK45',t_eval=time_pen)).y
             
-        #     J += opt_obj.l2_pen*np.dot(Z[:,-1],Z[:,-1])
+            J += opt_obj.l2_pen*np.dot(Z[:,-1],Z[:,-1])
             
         J = np.sum(np.asarray(mpi_pool.comm.allgather(J)))
-        J_sol = np.sum(np.asarray(mpi_pool.comm.allgather(J_sol)))
+        J_X = np.sum(np.asarray(mpi_pool.comm.allgather(J_X)))
         J_c = np.sum(np.asarray(mpi_pool.comm.allgather(J_c)))
+        J_cdot = np.sum(np.asarray(mpi_pool.comm.allgather(J_cdot)))
 
         if mpi_pool.rank == 0:
-            print("  Cost: %.4e = %.4e + %.4e"%(J, J_sol, J_c))
+            print("  Cost: %.4e = %.4e + %.4e + %.4e"%(J, J_X, J_c, J_cdot))
 
         return J
 
@@ -104,127 +110,149 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
 
         Phi, Psi = params[0], params[1]
         tensors_trainable = params[2:] # A, B, p, Q
-        n, r = Phi.shape
-
-        F = sp.linalg.inv(Psi.T@Phi)
-        PhiF = Phi@F # PhiF = Phi@(Psi^T@Phi)-1
-        PhiF_dx = opt_obj.take_derivative(PhiF, order=1)
-        Psi_dx = opt_obj.take_derivative(Psi, order=1)
-
-        Proj_perp = np.eye(Phi.shape[0]) - Psi@(PhiF.T)
-
-        # Define operators derived from bases
-        cdot_denom_linear = np.zeros(r)
-        udx_linear = Psi.T @ PhiF_dx
-        u0_dx = opt_obj.sol_template_dx
-        u0_dxx = opt_obj.sol_template_dxx
-        
-        for i in range(r):
-            cdot_denom_linear[i] = opt_obj.inner_product(u0_dx, PhiF_dx[:, i])
-
-        tensors = tensors_trainable + (cdot_denom_linear, udx_linear)
         
         # Initialize arrays to store the gradients
-        
+        n, r = Phi.shape
         grad_Phi = np.zeros((n,r))
         grad_Psi = np.zeros((n,r))
         grad_tensors_trainable = [0]*len(tensors_trainable)
         
         # Initialize arrays needed for future computations
-        xi_j_0 = np.zeros(r) # xi is the sum of lambda from j to N_t - 1; xi_j(t) = sum_{i = j}^{N_t - 1} lambda_i(t)
+        xi0_j = np.zeros(r) # xi is the sum of lambda ("lam" in the original NiTROM codes) from j to N_t - 1; xi_j(t) = sum_{i = j}^{N_t - 1} lambda_i(t)
         Int_cdot_xi_z_j = np.zeros((r,r))
         Int_eta_cdot_u0dxx_outer_z_j_cdot_denom = np.zeros((n,r))
-        Int_eta_cdot_z_j_outer_u0_dx_cdot_denom = np.zeros((r,n))   
         const_j = 0.0
-                
+        
+        # Biorthogonalize Phi and Psi
+        F = sp.linalg.inv(Psi.T@Phi)
+        PhiF = Phi@F # PhiF = Phi@(Psi^T@Phi)-1
+        PhiF_dx = opt_obj.spatial_deriv(PhiF, order=1)
+        Psi_dx = opt_obj.spatial_deriv(Psi, order=1)
+        
         # Gauss-Legendre quadrature points and weights
         tlg, wlg = np.polynomial.legendre.leggauss(opt_obj.leggauss_deg)
         wlg = np.asarray(wlg)
+
+        # Define operators derived from bases
+        Proj_perp = np.eye(Phi.shape[0]) - Psi@(PhiF.T)
         
+        cdot_denom_linear = np.zeros(r)
+        udx_linear = Psi.T @ PhiF_dx
+        u0_dx = opt_obj.X_template_dx
+        u0_dxx = opt_obj.X_template_dxx
+        
+        for i in range(r):
+            cdot_denom_linear[i] = opt_obj.inner_product(u0_dx, PhiF_dx[:, i])
+
+        tensors = tensors_trainable + (cdot_denom_linear, udx_linear)
+
         for k in range (opt_obj.my_n_traj): 
 
             # Integrate the reduced-order model from time t = 0 to the final time 
             # specified by the last snapshot in the training trajectory
-            z_IC = Psi.T@(opt_obj.sol_fitted[k,:,0].reshape(-1))
-            c_IC = opt_obj.shift_amount[k,0]
-            u = Psi.T@(opt_obj.f_ext_steady[k,:].reshape(-1))
+            z0 = Psi.T@(opt_obj.X_fitted[k,:,0].reshape(-1))
+            c0 = opt_obj.c[k,0]
+            u = Psi.T@(opt_obj.F[:,k].reshape(-1))
             
-            output = solve_ivp(opt_obj.evaluate_rom_rhs,
+            sol = solve_ivp(opt_obj.evaluate_rom_rhs,
                             [opt_obj.time[0],opt_obj.time[-1]],
-                            np.hstack((z_IC, c_IC)),
+                            np.hstack((z0, c0)),
                             method='RK45',
                             t_eval=opt_obj.time,
                             args=(u,) + tensors).y
             
-            z   = output[:-1,:]
-            sol = PhiF@z
-            c   = output[-1,:]
+            Z = sol[:-1,:]
+            c = sol[-1,:]
+            cdot = np.array([opt_obj.compute_shift_speed(Z[:,i], tensors) for i in range (opt_obj.n_snapshots)])
             
-            e_sol = sol - opt_obj.sol_fitted[k,:,:]
-            e_c   = c - opt_obj.shift_amount[k,:]
+            sol_X_fitted = PhiF@Z
+            X_fitted_with_c = np.zeros_like(sol_X_fitted)
+            for j in range (opt_obj.n_snapshots):
+                X_fitted_with_c[:,j] = opt_obj.shift(opt_obj.X[k,:,j], -c[j])
+                
+            e_X_fitted = X_fitted_with_c - sol_X_fitted # recall that ||(S_{c_ROM}[u_hat] - u)||_2 = ||(u_hat - S_{-c_ROM}[u])||_2
+            e_c = opt_obj.c[k,:] - c
+            e_cdot = opt_obj.cdot[k,:] - cdot
             
-            xi_j_0 *= 0.0
+            xi0_j *= 0.0
             Int_cdot_xi_z_j *= 0.0
             Int_eta_cdot_u0dxx_outer_z_j_cdot_denom *= 0.0
-            Int_eta_cdot_z_j_outer_u0_dx_cdot_denom *= 0.0
             const_j *= 0.0
             
             for j in range(opt_obj.n_snapshots - 1):
                 
-                e_sol_j = e_sol[:,opt_obj.n_snapshots - j - 1] # e_sol_j is from j = N_t - 1 to j = 1
-                z_j     = z[:,opt_obj.n_snapshots - j - 1]
-                e_c_j   = e_c[opt_obj.n_snapshots - j - 1]
+                e_X_fitted_j = e_X_fitted[:,opt_obj.n_snapshots - j - 1] # e_sol_j is from j = N_t - 1 to j = 1
+                z_j     = Z[:,opt_obj.n_snapshots - j - 1]
+                e_c_j    = e_c[opt_obj.n_snapshots - j - 1]
+                e_cdot_j = e_cdot[opt_obj.n_snapshots - j - 1]
+                cdot_j = cdot[opt_obj.n_snapshots - j - 1]
+                cdot_denom_j = opt_obj.compute_shift_speed_denom(z_j, tensors)
+                u0dxx_zj_outer_product = opt_obj.outer_product(u0_dxx, z_j)
                 
-                grad_Phi += (2/opt_obj.weight_sol[k]) * np.einsum('i,j', e_sol_j, z_j)
-                grad_Psi -= (2/opt_obj.weight_sol[k]) * np.einsum('i,j',PhiF@z_j, PhiF.T@e_sol_j)
+                weight_X_j = opt_obj.weights_X[k,opt_obj.n_snapshots - j - 1]
+                weight_c_j = opt_obj.weights_c[k,opt_obj.n_snapshots - j - 1]
+                weight_cdot_j = opt_obj.weights_cdot[k,opt_obj.n_snapshots - j - 1]
+                
+                grad_Phi -= 2 * weight_X_j * np.einsum('i,j', e_X_fitted_j, z_j)
+                grad_Phi -= 2 * weight_cdot_j * e_cdot_j * cdot_j * u0dxx_zj_outer_product / cdot_denom_j
+                grad_Psi += 2 * weight_X_j * np.einsum('i,j',PhiF@z_j, PhiF.T@e_X_fitted_j)
+                grad_Psi += 2 * weight_cdot_j * e_cdot_j * cdot_j * (PhiF @ u0dxx_zj_outer_product.T @ PhiF) / cdot_denom_j
+                
+                for (count,p) in enumerate(opt_obj.poly_comp):
+                    equation = ','.join(ascii[:p])
+                    operands = [z_j for _ in range (p)]
+                    grad_tensors_trainable[count + len(opt_obj.poly_comp)] += 2 * weight_cdot_j * e_cdot_j * np.einsum(equation,*operands) / cdot_denom_j 
 
                 id1 = opt_obj.n_snapshots - j - 1 # id1 is from N_t - 1 to 1
                 id0 = id1 - 1                     # id0 is from N_t - 2 to 0
                 
                 tf_j = opt_obj.time[id1] # from t_{N_t - 1} to t_1
                 t0_j = opt_obj.time[id0] # from t_{N_t - 2} to t_0
-                z_j_IC = z[:,id0]        # z_IC_j is from z_{N_t - 2} to z_0
-                c_j_IC = c[id0]          # c_IC_j is from c_{N_t - 2} to c_0
+                z0_j = Z[:,id0]        # z_IC_j is from z_{N_t - 2} to z_0
+                c0_j = c[id0]          # c_IC_j is from c_{N_t - 2} to c_0
+                
                 time_rom_j = np.linspace(t0_j,tf_j,num=opt_obj.nsave_rom,endpoint=True) # used to solve the adjoint eqn from t0_j to tf_j
                 if np.abs(time_rom_j[-1] - tf_j) >= 1e-10:
                     print(time_rom_j[-1],tf_j)
                     raise ValueError("Error in euclidean_gradient() - final time is not correct!")
                 
-                output_j = solve_ivp(opt_obj.evaluate_rom_rhs,
+                sol_j = solve_ivp(opt_obj.evaluate_rom_rhs,
                                 [t0_j,tf_j],
-                                np.hstack((z_j_IC, c_j_IC)),
+                                np.hstack((z0_j, c0_j)),
                                 method='RK45',
                                 t_eval=time_rom_j,
                                 args=(u,) + tensors).y # output_j is z and c from t0_j to tf_j with finer sampling intervals (nsave_rom points between two FOM snapshots)
 
-                z_j_flipped = np.fliplr(output_j[:-1,:])
-                fz = sp.interpolate.interp1d(time_rom_j,z_j_flipped,kind='linear',fill_value='extrapolate') # gives z(tf_j - t)
+                sol_z_j_flipped = np.fliplr(sol_j[:-1,:])
+                fz = sp.interpolate.interp1d(time_rom_j,sol_z_j_flipped,kind='linear',fill_value='extrapolate') # gives z(tf_j - t)
                 fcdot = lambda t: opt_obj.compute_shift_speed(fz(t), tensors) # gives back cdot(z(tf_j - t))
 
                 # Compute the adjoint ROM solution between times t0_j and tf_j
                 # here xi_j = sum_{m=j}^{N_t - 1} lambda_m, and lambda_m(t_m) = (2/weight_sol)*PhiF^T e_sol_m
                 # eta_j = sum_{m=j}^{N_t - 1} mu_m, mu_m(t) = z^T(t) PhiF_dx^T Psi lambda_m(t) - 2 / weight_c * e_c_m
-                xi_j_0  -= (2/opt_obj.weight_sol[k])*PhiF.T@e_sol_j 
-                const_j -= (2/opt_obj.weight_shift_amount[k])*e_c_j
-                
-                xi_j_flipped = solve_ivp(opt_obj.evaluate_rom_adjoint,
+                xi0_j  += 2 * weight_X_j * PhiF.T@e_X_fitted_j 
+                xi0_j  += 2 * weight_cdot_j * e_cdot_j * opt_obj.evaluate_shift_speed_adjoint(z_j, cdot_j, *tensors)
+                const_j -= 2 * weight_X_j * np.einsum("i,i", e_X_fitted_j, PhiF_dx @ z_j)
+                const_j += 2 * weight_c_j * e_c_j
+               
+                sol_xi_j_flipped = solve_ivp(opt_obj.evaluate_rom_adjoint,
                                 [t0_j,tf_j],
-                                xi_j_0,
+                                xi0_j,
                                 method='RK45',
                                 t_eval=time_rom_j,
                                 args=(fz, fcdot, const_j, PhiF_dx, Psi) + tensors).y
 
-                xi_j = np.fliplr(xi_j_flipped)
-                xi_j_0 = xi_j[:,0]
-                z_j = np.fliplr(z_j_flipped)
+                sol_xi_j = np.fliplr(sol_xi_j_flipped)
+                xi0_j = sol_xi_j[:,0]
+                sol_z_j = np.fliplr(sol_z_j_flipped)
                 
                 # Interpolate z_j and xi onto Gauss-Legendre points
                 a = (tf_j - t0_j)/2
                 b = (tf_j + t0_j)/2
                 time_j_lg = a*tlg + b
                 
-                fz = sp.interpolate.interp1d(time_rom_j,z_j,kind='linear',fill_value='extrapolate')
-                fxi = sp.interpolate.interp1d(time_rom_j,xi_j,kind='linear',fill_value='extrapolate')
+                fz = sp.interpolate.interp1d(time_rom_j,sol_z_j,kind='linear',fill_value='extrapolate')
+                fxi = sp.interpolate.interp1d(time_rom_j,sol_xi_j,kind='linear',fill_value='extrapolate')
                 feta = lambda t: np.einsum('i,i', fz(t), PhiF_dx.T@Psi@fxi(t)) + const_j
                 fcdot_denom = lambda t: opt_obj.compute_shift_speed_denom(fz(t), tensors)
                 fcdot = lambda t: opt_obj.compute_shift_speed(fz(t), tensors)
@@ -239,12 +267,11 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
 
                     Int_cdot_xi_z_j += a*wlg[i]*cdot_lg[i] * np.einsum('i, j', xi_lg[:,i], z_j_lg[:,i])
                     Int_eta_cdot_u0dxx_outer_z_j_cdot_denom += a*wlg[i]*eta_lg[i]*cdot_lg[i] * opt_obj.outer_product(u0_dxx, z_j_lg[:,i]) / cdot_denom_lg[i]
-                    Int_eta_cdot_z_j_outer_u0_dx_cdot_denom += a*wlg[i]*eta_lg[i]*cdot_lg[i] * opt_obj.outer_product(z_j_lg[:,i], u0_dx) / cdot_denom_lg[i]
                     grad_Phi += Psi_dx @ Int_cdot_xi_z_j - Int_eta_cdot_u0dxx_outer_z_j_cdot_denom
 
                     grad_Psi -= PhiF_dx @ Int_cdot_xi_z_j.T
                     grad_Psi += PhiF @ (Int_cdot_xi_z_j.T @ Psi.T) @ PhiF_dx
-                    grad_Psi -= PhiF @ Int_eta_cdot_z_j_outer_u0_dx_cdot_denom @ PhiF_dx
+                    grad_Psi += PhiF @ Int_eta_cdot_u0dxx_outer_z_j_cdot_denom.T @ PhiF
 
                     for (count,p) in enumerate(opt_obj.poly_comp):
                         equation = ','.join(ascii[:p+1])
@@ -253,130 +280,62 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
                         equation = ','.join(ascii[:p])
                         operands = [z_j_lg[:,i] for _ in range (p)]
                         grad_tensors_trainable[count + len(opt_obj.poly_comp)] += a*wlg[i]*np.einsum(equation,*operands) * eta_lg[i] / cdot_denom_lg[i]
-                        
-            e_sol_0 = e_sol[:,0]
-            z_0     = z[:,0]
-            xi_j_0  -= (2/opt_obj.weight_sol[k])*PhiF.T@e_sol_0 
-            grad_Phi += (2/opt_obj.weight_sol[k])*np.einsum('i,j', e_sol_0, z_0)
-            grad_Phi = (Proj_perp @ grad_Phi) @ F.T
-            grad_Psi -= (2/opt_obj.weight_sol[k])*np.einsum('i,j', PhiF@z_0, PhiF.T@e_sol_0) - np.einsum('i,j', opt_obj.sol_fitted[k,:,0], xi_j_0)
-               
-        """ The original codes in NiTROM      
-        # for k in range (opt_obj.my_n_traj):
-
-        #     z0 = Psi.T@opt_obj.X[k,:,0]
-        #     u = Psi.T@opt_obj.F[:,k]
-        #     sol = solve_ivp(opt_obj.evaluate_rom_rhs,[0,opt_obj.time[-1]],z0,\
-        #                     method='RK45',t_eval=opt_obj.time,args=(u,) + tensors)
-        #     Z = sol.y
-        #     e = fom.compute_output(opt_obj.X[k,:,:]) - fom.compute_output(PhiF@Z)
-        #     alpha = opt_obj.weights[k]
-            
-        #     lam_j_0 *= 0.0
-        #     Int_lambda *= 0.0
-            
-        #     for j in range (opt_obj.n_snapshots - 1):
-        
-        #         ej = e[:,opt_obj.n_snapshots - j - 1]
-        #         zj = Z[:,opt_obj.n_snapshots - j - 1]
-        #         Ctej = fom.compute_output_derivative(PhiF@zj).T@ej
-
-        #         # Compute the sums in (2.13) and (2.14) in the arXiv paper. Notice that this loop sums backwards
-        #         # from j = N-1 to j = 1, so we will compute the term j = 0 after this loop 
-        #         grad_Psi += (2/alpha)*np.einsum('i,j',PhiF@zj,PhiF.T@Ctej)
-        #         grad_Phi += -(2/alpha)*np.einsum('i,j',Ctej - Psi@(PhiF.T@Ctej),F@zj)
-
-
-        #         # ------ Compute the fwd ROM solution between times t0_j and tf_j ---------
-        #         id1 = opt_obj.n_snapshots - 1 - j
-        #         id0 = id1 - 1
-                
-        #         tf_j = opt_obj.time[id1]
-        #         t0_j = opt_obj.time[id0]
-        #         z0_j = Z[:,id0]
-                
-        #         time_rom_j = np.linspace(t0_j,tf_j,num=opt_obj.nsave_rom,endpoint=True)
-        #         if np.abs(time_rom_j[-1] - tf_j) >= 1e-10:
-        #             print(time_rom_j[-1],tf_j)
-        #             raise ValueError("Error in euclidean_gradient() - final time is not correct!")
-                
-        #         sol_j = solve_ivp(opt_obj.evaluate_rom_rhs,[t0_j,tf_j],z0_j,method='RK45',\
-        #                           t_eval=time_rom_j,args=(u,) + tensors)
-        #         Z_j = np.fliplr(sol_j.y)
-        #         fZ = sp.interpolate.interp1d(time_rom_j,Z_j,kind='linear',fill_value='extrapolate')
-        #         # --------------------------------------------------------------------------
-
-        #         # ------ Compute the adj ROM solution between times t0_j and tf_j ----------
-        #         lam_j_0 += (2/alpha)*PhiF.T@Ctej
-        #         sol_lam = solve_ivp(opt_obj.evaluate_rom_adjoint,[t0_j,tf_j],lam_j_0,\
-        #                             method='RK45',t_eval=time_rom_j,args=(fZ,) + tensors)
-        #         Lam = np.fliplr(sol_lam.y)
-        #         lam_j_0 = Lam[:,0]
-        #         Z_j = np.fliplr(Z_j)
-        #         # --------------------------------------------------------------------------
-                
-        #         # Interpolate Z_j and Lam onto Gauss-Legendre points
-        #         a = (tf_j - t0_j)/2
-        #         b = (tf_j + t0_j)/2
-        #         time_j_lg = a*tlg + b
-
-        #         fZ = sp.interpolate.interp1d(time_rom_j,Z_j,kind='linear',fill_value='extrapolate')
-        #         fL = sp.interpolate.interp1d(time_rom_j,Lam,kind='linear',fill_value='extrapolate')
-        #         Z_j_lg = fZ(time_j_lg)
-        #         Lam_lg = fL(time_j_lg)
-                
-        #         for i in range (opt_obj.leggauss_deg):
-                    
-        #             Int_lambda += a*wlg[i]*Lam_lg[:,i]
-                    
-        #             for (count,p) in enumerate(opt_obj.poly_comp):
-        #                 equation = ','.join(ascii[:p+1])
-        #                 operands = [Lam_lg[:,i]] + [Z_j_lg[:,i] for _ in range (p)]
-        #                 grad_tensors[count] -= a*wlg[i]*np.einsum(equation,*operands)
-                    
             
             # Add the term j = 0 in the sums (2.13) and (2.14). Also add the  
             # contribution of the initial condition (last term in (2.14)) to grad_Psi.
-            # Add also the contribution of the steady forcing to grad_Psi.
-            ej, zj = e[:,0], Z[:,0]
-            Ctej = fom.compute_output_derivative(PhiF@zj).T@ej
-            grad_Psi += (2/alpha)*np.einsum('i,j',PhiF@zj,PhiF.T@Ctej) \
-                        - np.einsum('i,j',opt_obj.X[k,:,0],lam_j_0) \
-                        - np.einsum('i,j',opt_obj.F[:,k],Int_lambda)
-            grad_Phi += -(2/alpha)*np.einsum('i,j',Ctej - Psi@(PhiF.T@Ctej),F@zj)
-        """
+            # Add also the contribution of the steady forcing to grad_Psi.            
+            e_X_fitted_0 = e_X_fitted[:,0]
+            z_0            = Z[:,0]
+            e_cdot_0       = e_cdot[0]
+            cdot_0         = cdot[0]
+            
+            cdot_denom_0     = opt_obj.compute_shift_speed_denom(z_0, tensors)
+            u0dxx_z_0_outer_0 = opt_obj.outer_product(u0_dxx, z_0)
+            
+            weight_X_0  = opt_obj.weights_X[k, 0]
+            weight_cdot_0 = opt_obj.weights_cdot[k, 0]
+            
+            xi0_j += 2*weight_X_0*PhiF.T@e_X_fitted_0
+            xi0_j += 2*weight_cdot_0*e_cdot_0*opt_obj.evaluate_shift_speed_adjoint(z_0, cdot_0, *tensors)
 
+            grad_Phi -= 2 * weight_X_0 * np.einsum('i,j', e_X_fitted_0, z_0)
+            grad_Phi -= 2 * weight_cdot_0 * e_cdot_0 * cdot_0 * u0dxx_z_0_outer_0 / cdot_denom_0
+            grad_Psi += 2 * weight_X_0 * np.einsum('i,j',PhiF@z_0, PhiF.T@e_X_fitted_0)
+            grad_Psi += 2 * weight_cdot_0 * e_cdot_0 * cdot_0 * (PhiF @ u0dxx_z_0_outer_0.T @ PhiF) / cdot_denom_0
+            grad_Psi -= np.einsum('i,j', opt_obj.X_fitted[k,:,0], xi0_j)
+            
+            grad_Phi = (Proj_perp @ grad_Phi) @ F.T
         
-        # # Compute the gradient of the stability-promoting term
-        # if opt_obj.l2_pen != None and mpi_pool.rank == 0:
+        # Compute the gradient of the stability-promoting term
+        if opt_obj.l2_pen != None and mpi_pool.rank == 0:
             
-        #     idx = opt_obj.poly_comp.index(1)    # index of the linear tensor
+            idx = opt_obj.poly_comp.index(1)    # index of the linear tensor
             
-        #     A = tensors[idx]
+            A = tensors[idx]
             
-        #     time_pen = np.linspace(0,opt_obj.pen_tf,opt_obj.n_snapshots*opt_obj.nsave_rom)
-        #     Z = (solve_ivp(lambda t,z: A@z if np.linalg.norm(z) < 1e4 else 0*z,\
-        #                    [0,time_pen[-1]],opt_obj.randic,method='RK45',t_eval=time_pen)).y
-        #     Mu = (solve_ivp(lambda t,z: A.T@z if np.linalg.norm(z) < 1e4 else 0*z,\
-        #                    [0,time_pen[-1]],-2*opt_obj.l2_pen*Z[:,-1],method='RK45',t_eval=time_pen)).y
-        #     Mu = np.fliplr(Mu)
+            time_pen = np.linspace(0,opt_obj.pen_tf,opt_obj.n_snapshots*opt_obj.nsave_rom)
+            Z = (solve_ivp(lambda t,z: A@z if np.linalg.norm(z) < 1e4 else 0*z,\
+                           [0,time_pen[-1]],opt_obj.randic,method='RK45',t_eval=time_pen)).y
+            Mu = (solve_ivp(lambda t,z: A.T@z if np.linalg.norm(z) < 1e4 else 0*z,\
+                           [0,time_pen[-1]],-2*opt_obj.l2_pen*Z[:,-1],method='RK45',t_eval=time_pen)).y
+            Mu = np.fliplr(Mu)
             
             
-        #     for k in range (opt_obj.n_snapshots - 1):
+            for k in range (opt_obj.n_snapshots - 1):
                 
-        #         k0, k1 = k*opt_obj.nsave_rom, (k+1)*opt_obj.nsave_rom
-        #         fZ = sp.interpolate.interp1d(time_pen[k0:k1],Z[:,k0:k1],kind='linear',fill_value='extrapolate')
-        #         fMu = sp.interpolate.interp1d(time_pen[k0:k1],Mu[:,k0:k1],kind='linear',fill_value='extrapolate')
+                k0, k1 = k*opt_obj.nsave_rom, (k+1)*opt_obj.nsave_rom
+                fZ = sp.interpolate.interp1d(time_pen[k0:k1],Z[:,k0:k1],kind='linear',fill_value='extrapolate')
+                fMu = sp.interpolate.interp1d(time_pen[k0:k1],Mu[:,k0:k1],kind='linear',fill_value='extrapolate')
             
-        #         a = (time_pen[k1-1] - time_pen[k0])/2
-        #         b = (time_pen[k1-1] + time_pen[k0])/2
-        #         time_k_lg = a*tlg + b
+                a = (time_pen[k1-1] - time_pen[k0])/2
+                b = (time_pen[k1-1] + time_pen[k0])/2
+                time_k_lg = a*tlg + b
                 
-        #         Zk = fZ(time_k_lg)
-        #         Muk = fMu(time_k_lg)
+                Zk = fZ(time_k_lg)
+                Muk = fMu(time_k_lg)
                 
-        #         for i in range (opt_obj.leggauss_deg):
-        #             grad_tensors[idx] += -a*wlg[i]*np.einsum('i,j',Muk[:,i],Zk[:,i])
+                for i in range (opt_obj.leggauss_deg):
+                    grad_tensors_trainable[idx] += -a*wlg[i]*np.einsum('i,j',Muk[:,i],Zk[:,i])
                 
         if opt_obj.which_fix == 'fix_bases':
 

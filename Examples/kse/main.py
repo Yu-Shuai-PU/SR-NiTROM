@@ -1,3 +1,4 @@
+import math
 import numpy as np 
 import scipy 
 import matplotlib.pyplot as plt
@@ -25,98 +26,135 @@ import opinf_functions as opinf_fun
 import troop_functions
 import fom_class_kse
 
+def update_relative_weights(initial_relative_weight, final_relative_weight, sigmoid_steepness, k_relative, kouter):
+    
+    """
+    This function is used to adjust dynamically the relative weights of different terms in the loss function as the iteration goes on.
+    For example, at first we want to fix the solution profile error, but later we might want to emphasize more on the matching of shifting amounts
+    """
+    
+    if kouter > 1:
+        progress = k_relative / (kouter - 1)
+    else:
+        progress = 1.0
+
+    sigmoid_variable = sigmoid_steepness * (progress - 0.5)
+    
+    tanh_val = math.tanh(sigmoid_variable)
+    
+    tanh_min = math.tanh(-sigmoid_steepness * 0.5)
+    tanh_max = math.tanh(sigmoid_steepness * 0.5)
+    f_progress = (tanh_val - tanh_min) / (tanh_max - tanh_min)
+
+    if initial_relative_weight < 1e-6 or final_relative_weight < 1e-6:
+        print("Both initial and final relative weights are zero, setting relative weight to zero directly.")
+        relative_weight = 0.0
+    else:
+        relative_weight = math.exp((1.0 - f_progress) * math.log(initial_relative_weight) + f_progress * math.log(final_relative_weight))
+    
+    return relative_weight
+
 # cPOD, cOI, cTR, cOPT = '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3'
 # lPOD, lOI, lTR, lOPT = 'solid', 'dotted', 'dashed', 'dashdot'
-
+cmap_name = 'bwr'
 #%% # Instantiate KSE class and KSE time-stepper class
 
-sol_path = "./solutions/"
+traj_path = "./trajectories/"
 data_path = "./data/"
 fig_path = "./figures/"
-os.makedirs(sol_path, exist_ok=True)
+os.makedirs(traj_path, exist_ok=True)
 os.makedirs(data_path, exist_ok=True)
 os.makedirs(fig_path, exist_ok=True)
 
-fname_sol_template = data_path + "sol_template.npy"
-fname_sol_template_dx = data_path + "sol_template_dx.npy"
-fname_sol_template_dxx = data_path + "sol_template_dxx.npy"
-fname_sol_init = data_path + "sol_init_%03d.npy" # for initial condition of u
-fname_sol_init_fitted = data_path + "sol_init_fitted_%03d.npy" # for initial condition of u fitted
-fname_sol = sol_path + "sol_%03d.npy" # for u
-fname_sol_fitted = sol_path + "sol_fitted_%03d.npy" # for u fitted
-fname_weight_sol = sol_path + "weight_sol_%03d.npy"
-fname_weight_shift_amount = sol_path + "weight_shift_amount_%03d.npy"
-fname_rhs = sol_path + "rhs_%03d.npy" # for du/dt
-fname_rhs_fitted = sol_path + "rhs_fitted_%03d.npy" # for du/dt fitted
-fname_shift_amount = sol_path + "shift_amount_%03d.npy" # for shifting amount
-fname_shift_speed = sol_path + "shift_speed_%03d.npy" # for shifting speed
-fname_time = sol_path + "time.npy"
+fname_X_template = data_path + "X_template.npy"
+fname_X_template_dx = data_path + "X_template_dx.npy"
+fname_X_template_dxx = data_path + "X_template_dxx.npy"
+# fname_traj_init = data_path + "traj_init_%03d.npy" # for initial condition of u
+# fname_traj_init_fitted = data_path + "traj_init_fitted_%03d.npy" # for initial condition of u fitted
+fname_traj = traj_path + "traj_%03d.npy" # for u
+fname_traj_fitted = traj_path + "traj_fitted_%03d.npy" # for u fitted
+# fname_weight_traj = traj_path + "weight_traj_%03d.npy" // we are not loading weights, instead we dynamically compute them as we adjusting the learning timespan of trajectory-based NiTROM objective functions
+# fname_weight_shift_amount = traj_path + "weight_shift_amount_%03d.npy"
+# fname_weight_shift_speed = traj_path + "weight_shift_speed_%03d.npy"
+fname_deriv = traj_path + "deriv_%03d.npy" # for du/dt
+fname_deriv_fitted = traj_path + "deriv_fitted_%03d.npy" # for du/dt fitted
+fname_shift_amount = traj_path + "shift_amount_%03d.npy" # for shifting amount
+fname_shift_speed = traj_path + "shift_speed_%03d.npy" # for shifting speed
+fname_time = traj_path + "time.npy"
+
 #%% # Generate and save trajectory
-n_sol = 9
-perturbation_amp = 1
-pool_inputs = (MPI.COMM_WORLD, n_sol)
-pool_kwargs = {'fname_time':fname_time, 'fname_sol':fname_sol,'fname_sol_fitted':fname_sol_fitted,
-               'fname_sol_template':fname_sol_template, 'fname_sol_template_dx':fname_sol_template_dx,
-               'fname_sol_template_dxx':fname_sol_template_dxx,
-               'fname_sol_init':fname_sol_init, 'fname_sol_init_fitted':fname_sol_init_fitted,
-               'fname_rhs':fname_rhs,'fname_rhs_fitted':fname_rhs_fitted,
-               'fname_shift_amount':fname_shift_amount,'fname_shift_speed':fname_shift_speed,
-               'fname_weight_sol':fname_weight_sol,'fname_weight_shift_amount':fname_weight_shift_amount}
+n_traj = 9
+amp = 1
+amp_array = np.array([-1.0, -0.5, -0.2, -0.1, 0.1, 0.2, 0.5, 1.0]) * amp
+pool_inputs = (MPI.COMM_WORLD, n_traj)
+pool_kwargs = {'fname_time':fname_time, 'fname_traj':fname_traj,'fname_traj_fitted':fname_traj_fitted,
+               'fname_X_template':fname_X_template, 'fname_X_template_dx':fname_X_template_dx,
+               'fname_X_template_dxx':fname_X_template_dxx,
+               'fname_deriv':fname_deriv,'fname_deriv_fitted':fname_deriv_fitted,
+               'fname_shift_amount':fname_shift_amount,'fname_shift_speed':fname_shift_speed}
 pool = classes.mpi_pool(*pool_inputs,**pool_kwargs)
 pool.load_data()
 
+
+# region 0: Set up NiTROM training parameters
 # Our policy is like: we find the POD bases from the entire training dataset,
 # but we train the bases and tensors only on the trajectory segments truncated in time.
 # It's a curriculum learning strategy in a way: learn on short-term dynamics first, then extend to long-term dynamics.
 
-# initialization = "POD-Galerkin" # "POD-Galerkin" or "Previous NiTROM"
-initialization = "Previous NiTROM"
-training_objects = "tensors_and_bases" 
-# training_objects = "tensors"
-r = 8
-relative_weight = 1
+initialization = "POD-Galerkin" # "POD-Galerkin" or "Previous NiTROM"
+# initialization = "Previous NiTROM"
+NiTROM_coeff_version = "new" # "old" or "new" for loading the NiTROM coefficients before or after the latest training
+# NiTROM_coeff_version = "old"
+# training_objects = "tensors_and_bases"
+# training_objects = "tensors" 
+training_objects = "no_alternating"
+manifold = "Grassmann" # "Grassmann" or "Stiefel" for Psi manifold
+# manifold = "Stiefel"
+weight_decay_rate = 1 # if weight_decay_rate is not 1, then the snapshots at larger times will be given less weights in the cost function
+r = 12 # ROM dimension
+initial_relative_weight_c = 0.1 # as the training iterations go on, we will gradually increase the weight of shift amount term in the cost function
+final_relative_weight_c = 0.1  # the final relative weight
+sigmoid_steepness_c_weight = 2.0
+initial_relative_weight_cdot = 0.01
+final_relative_weight_cdot = 0.01
+sigmoid_steepness_cdot_weight = 2.0
 k0 = 0
-kouter = 20
+kouter = 4
 kinner_basis = 5
 kinner_tensor = 5
-initial_step_size_basis = 1e-2
+initial_step_size_basis = 1e-1
 initial_step_size_tensor = 1e-3
-sufficient_decrease_rate_basis = 1e-4
+initial_step_size = 1e-3
+step_size_decrease_rate = 0.9
+sufficient_decrease_rate_basis = 1e-3
 sufficient_decrease_rate_tensor = 1e-3
-contraction_factor_tensor = 0.5
-contraction_factor_basis = 0.5
-max_iterations = 25
-leggauss_deg = 5
-nsave_rom = 11
-poly_comp = [1, 2] # polynomial degree for the ROM dynamics
+initial_sufficient_decrease_rate = 1e-3
+sufficient_decrease_rate_decay = 0.9
+contraction_factor_tensor = 0.6
+contraction_factor_basis = 0.6
+contraction_factor = 0.6
 snapshot_start_time_POD = 0
-snapshot_end_time_POD = pool.n_snapshots # 1001
+snapshot_end_time_POD = 1 + int(4 * (pool.n_snapshots - 1) // 4) # 1001
 snapshot_start_time_NiTROM_training = 0
-snapshot_end_time_NiTROM_training = 1 + int(10 * (pool.n_snapshots - 1) // 10)
+snapshot_end_time_NiTROM_training = 1 + int(0.1 * (pool.n_snapshots - 1) // 4)
 
-# snapshot_start_time = 3 * (pool.n_snapshots - 1) // 9
-# snapshot_end_time = 4 * (pool.n_snapshots - 1) // 9 + 1
-# sol_template     = np.cos(x)
-# sol_template_dx  = -np.sin(x)
-# sol_template_dxx = -np.cos(x)
+# endregion
 
-# # 2. 如果当前处理器的 rank 不是 0，则重定向其标准输出
+max_iterations = 20
+leggauss_deg = 5
+nsave_rom = 11 # nsave_rom = 1 + int(dt_sample/dt) = 1 + sample_interval
+
 if pool.rank != 0:
-    # os.devnull 是一个特殊的、跨平台的文件路径，所有写入它的内容都会被丢弃
-    # 我们打开它并将其设置为新的 sys.stdout
     sys.stdout = open(os.devnull, 'w')
-    # 可选：如果你也想屏蔽错误信息，可以加上下面这行
-    # sys.stderr = open(os.devnull, 'w')
 
-# which_trajs = np.array([0])
-
-which_trajs = np.arange(0, pool.my_n_sol, 1)
+which_trajs = np.arange(0, pool.my_n_traj, 1)
 which_times = np.arange(snapshot_start_time_POD,snapshot_end_time_POD,1)
 L = 2 * np.pi
 nx = 40
 x = np.linspace(0, L, num=nx, endpoint=False)
 nu = 4/87
-max_wavenumber_stable = int(np.ceil(np.sqrt(1/nu)))
+
+poly_comp = [1, 2] # polynomial degree for the ROM dynamics
 
 opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
 opt_obj = classes.optimization_objects(*opt_obj_inputs)
@@ -125,25 +163,19 @@ Phi_POD, cumulative_energy_proportion = opinf_fun.perform_POD(pool,opt_obj,r)
 Psi_POD = Phi_POD.copy()
 PhiF_POD = Phi_POD@scipy.linalg.inv(Psi_POD.T@Phi_POD)
 
-fom = fom_class_kse.KSE(L, nu, nx, pool.sol_template, pool.sol_template_dx)
+fom = fom_class_kse.KSE(L, nu, nx, pool.X_template, pool.X_template_dx)
 
-which_trajs = np.arange(0, pool.my_n_sol, 1)
+which_trajs = np.arange(0, pool.my_n_traj, 1)
 which_times = np.arange(snapshot_start_time_NiTROM_training,snapshot_end_time_NiTROM_training,1)
 
 opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
 opt_obj_kwargs = {
-    'sol_template_dx': pool.sol_template_dx,
-    'sol_template_dxx': pool.sol_template_dxx,
-    'spatial_derivative_method': fom.take_derivative,
+    'X_template_dx': pool.X_template_dx,
+    'X_template_dxx': pool.X_template_dxx,
+    'spatial_deriv_method': fom.spatial_deriv,
     'inner_product_method': fom.inner_product,
-    'outer_product_method': fom.outer_product,
-    'relative_weight': relative_weight,
-    'stab_promoting_pen':0.0,
-    'stab_promoting_tf':20,
-    'stab_promoting_ic':(np.random.randn(r),)}
+    'outer_product_method': fom.outer_product}
 opt_obj = classes.optimization_objects(*opt_obj_inputs, **opt_obj_kwargs)
-
-# print(pool.rank, opt_obj.my_n_sol, pool.my_n_sol)
 
 Tensors_POD = fom.assemble_petrov_galerkin_tensors(Phi_POD, Psi_POD) # A, B, p, Q, s, M
 
@@ -156,184 +188,86 @@ np.savez(fname_Tensors_POD, *Tensors_POD)
 
 # region 1: SR-Galerkin ROM
 
-fname_sol_SR_POD_Galerkin = sol_path + "sol_SR_Galerkin_%03d.npy" # for u
-fname_sol_fitted_SR_POD_Galerkin = sol_path + "sol_fitted_SR_Galerkin_%03d.npy"
-fname_shift_amount_SR_POD_Galerkin = sol_path + "shift_amount_SR_Galerkin_%03d.npy" # for shifting amount
-fname_shift_speed_SR_POD_Galerkin = sol_path + "shift_speed_SR_Galerkin_%03d.npy"
+fname_traj_SRG = traj_path + "traj_SRG_%03d.npy" # for u
+fname_traj_fitted_SRG = traj_path + "traj_fitted_SRG_%03d.npy"
+fname_shift_amount_SRG = traj_path + "shift_amount_SRG_%03d.npy" # for shifting amount
+fname_shift_speed_SRG = traj_path + "shift_speed_SRG_%03d.npy"
+fname_relative_error_SRG = traj_path + "relative_error_SRG_%03d.npy"
 
-relative_error_all_sol = 0.0
-relative_error_fitted_all_sol = 0.0
+relative_error = np.zeros(opt_obj.n_snapshots)
+relative_error_space_time_SRG = np.zeros(pool.my_n_traj)
+# relative_error_fitted = 0.0
 
-for k in range(pool.my_n_sol):
-    sol_idx = k + pool.disps[pool.rank]
-    print("Preparing SR-Galerkin simulation %d/%d"%(sol_idx,n_sol))
-    z_IC = Psi_POD.T@opt_obj.sol_fitted[k,:,0].reshape(-1)
-    shift_amount_IC = opt_obj.shift_amount[k,0]
+for k in range(pool.my_n_traj):
+    traj_idx = k + pool.disps[pool.rank]
+    print("Preparing SR-Galerkin simulation %d/%d"%(traj_idx,pool.n_traj))
+    z0 = Psi_POD.T@opt_obj.X_fitted[k,:,0].reshape(-1)
+    c0 = opt_obj.c[k,0]
 
-    output_SR_POD_Galerkin = solve_ivp(opt_obj.evaluate_rom_rhs,
+    sol = solve_ivp(opt_obj.evaluate_rom_rhs,
                                           [opt_obj.time[0],opt_obj.time[-1]],
-                                          np.hstack((z_IC, shift_amount_IC)),
+                                          np.hstack((z0, c0)),
                                           'RK45',
                                           t_eval=opt_obj.time,
                                           args=(np.zeros(r),) + Tensors_POD).y
     
-    sol_fitted_SR_POD_Galerkin = PhiF_POD@output_SR_POD_Galerkin[:-1,:]
-    shift_amount_SR_POD_Galerkin = output_SR_POD_Galerkin[-1,:]
-    sol_SR_POD_Galerkin = np.zeros_like(sol_fitted_SR_POD_Galerkin)
-    shift_speed_SR_POD_Galerkin = np.zeros_like(shift_amount_SR_POD_Galerkin)
+    X_fitted_SRG = PhiF_POD@sol[:-1,:]
+    c_SRG = sol[-1,:]
+    X_SRG = np.zeros_like(X_fitted_SRG)
+    cdot_SRG = np.zeros_like(c_SRG)
+
     for j in range (len(opt_obj.time)):
-        sol_SR_POD_Galerkin[:,j] = fom.shift(sol_fitted_SR_POD_Galerkin[:,j], shift_amount_SR_POD_Galerkin[j])
-        shift_speed_SR_POD_Galerkin[j] = opt_obj.compute_shift_speed(output_SR_POD_Galerkin[:r,j], Tensors_POD)
-
-    np.save(fname_sol_SR_POD_Galerkin%sol_idx,sol_SR_POD_Galerkin)
-    np.save(fname_sol_fitted_SR_POD_Galerkin%sol_idx,sol_fitted_SR_POD_Galerkin)
-    np.save(fname_shift_amount_SR_POD_Galerkin%sol_idx,shift_amount_SR_POD_Galerkin)
-    np.save(fname_shift_speed_SR_POD_Galerkin%sol_idx,shift_speed_SR_POD_Galerkin)
+        X_SRG[:,j] = fom.shift(X_fitted_SRG[:,j], c_SRG[j])
+        cdot_SRG[j] = opt_obj.compute_shift_speed(sol[:-1,j], Tensors_POD)
+        relative_error[j] = np.linalg.norm(opt_obj.X[k,:,j] - X_SRG[:,j]) / np.linalg.norm(opt_obj.X[k,:,j])
+        
+    relative_error_space_time_SRG[k] = np.linalg.norm(opt_obj.X[k,:,:] - X_SRG)/np.linalg.norm(opt_obj.X[k,:,:])
+        
+    np.save(fname_traj_SRG%traj_idx,X_SRG)
+    np.save(fname_traj_fitted_SRG%traj_idx,X_fitted_SRG)
+    np.save(fname_shift_amount_SRG%traj_idx,c_SRG)
+    np.save(fname_shift_speed_SRG%traj_idx,cdot_SRG)
+    np.save(fname_relative_error_SRG%traj_idx,relative_error)
     
-    sol_FOM = opt_obj.sol[k,:,:]
-    sol_fitted_FOM = opt_obj.sol_fitted[k,:,:]  
-    shift_amount_FOM = opt_obj.shift_amount[k,:]
-    shift_speed_FOM = opt_obj.shift_speed[k,:]
-    
-    relative_error = np.linalg.norm(sol_FOM - sol_SR_POD_Galerkin)/np.linalg.norm(sol_FOM)
-    relative_error_fitted = np.linalg.norm(sol_fitted_FOM - sol_fitted_SR_POD_Galerkin)/np.linalg.norm(sol_fitted_FOM)
-    # print("Relative error of SR-Galerkin ROM: %.4e"%(relative_error))
-    # print("Relative error of fitted SR-Galerkin ROM: %.4e"%(relative_error_fitted))
+    ### Plotting, things to be done:
+    ### 1. switch from contourf to pcolormesh
+    ### 2. apply Fourier spectral interpolation to plot a 40-mode solution on a 256-point grid for better visualization
     
     plt.figure(figsize=(10,6))
-    plt.contourf(x,opt_obj.time,sol_FOM.T, levels = np.linspace(-16, 16, 9))
+    plt.contourf(x,opt_obj.time,opt_obj.X[k,:,:].T, levels = np.linspace(-16, 16, 9), cmap=cmap_name)
     plt.colorbar()
     plt.xlabel(r"$x$")
     plt.ylabel(r"$t$")
     plt.tight_layout()
-    if k == 0:
+    if traj_idx == 0:
         plt.title(f"FOM solution, initial condition = uIC")
-    elif 1 <= k <= (n_sol - 1) // 2:
-        plt.title(f"FOM solution, initial condition = uIC + {perturbation_amp} * cos({k} * x)")
     else:
-        plt.title(f"FOM solution, initial condition = uIC + {perturbation_amp} * sin({k - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "sol_FOM_%03d.png"%sol_idx)
+        plt.title(f"FOM solution, initial condition = uIC + {amp_array[traj_idx - 1]} * sin(x)")
+    plt.savefig(fig_path + "traj_FOM_%03d.png"%traj_idx)
     plt.close()
 
     plt.figure(figsize=(10,6))
-    plt.contourf(x,opt_obj.time,sol_SR_POD_Galerkin.T, levels = np.linspace(-16, 16, 9))
+    plt.contourf(x,opt_obj.time,X_SRG.T, levels = np.linspace(-16, 16, 9), cmap=cmap_name)
     plt.colorbar()
     plt.xlabel(r"$x$")
     plt.ylabel(r"$t$")
     plt.tight_layout()
-    if k == 0:
-        plt.title(f"SRG solution, error: {relative_error:.4e}, initial condition = uIC")
-    elif 1 <= k <= (n_sol - 1) // 2:
-        plt.title(f"SRG solution, error: {relative_error:.4e}, initial condition = uIC + {perturbation_amp} * cos({k} * x)")
+    if traj_idx == 0:
+        plt.title(f"SRG solution, error: {relative_error_space_time_SRG[k]:.4e}, initial condition = uIC")
     else:
-        plt.title(f"SRG solution, error: {relative_error:.4e}, initial condition = uIC + {perturbation_amp} * sin({k - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "sol_SRG_%03d.png"%sol_idx)
+        plt.title(f"SRG solution, error: {relative_error_space_time_SRG[k]:.4e}, initial condition = uIC + {amp_array[traj_idx - 1]} * sin(x)")
+    plt.savefig(fig_path + "traj_SRG_%03d.png"%traj_idx)
     plt.close()
-
-    plt.figure(figsize=(10,6))
-    plt.contourf(x,opt_obj.time,(sol_FOM - sol_SR_POD_Galerkin).T, levels = np.linspace(-16, 16, 9))
-    plt.colorbar()
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"$t$")
-    plt.tight_layout()
-    if sol_idx == 0:
-        plt.title(f"FOM-SRG diff, error: {relative_error:.4e}, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"FOM-SRG diff, error: {relative_error:.4e}, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
-    else:
-        plt.title(f"FOM-SRG diff, error: {relative_error:.4e}, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "sol_SRG_FOM_diff_%03d.png"%sol_idx)
-    plt.close()
-    
-    plt.figure(figsize=(10,6))
-    plt.contourf(x,opt_obj.time,sol_fitted_FOM.T, levels = np.linspace(-16, 16, 9))
-    plt.colorbar()
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"$t$")
-    plt.tight_layout()
-    if k == 0:
-        plt.title(f"FOM solution, initial condition = uIC")
-    elif 1 <= k <= (n_sol - 1) // 2:
-        plt.title(f"FOM solution, initial condition = uIC + {perturbation_amp} * cos({k} * x)")
-    else:
-        plt.title(f"FOM solution, initial condition = uIC + {perturbation_amp} * sin({k - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "sol_FOM_fitted_%03d.png"%sol_idx)
-    plt.close()
-    
-    plt.figure(figsize=(10,6))
-    plt.contourf(x,opt_obj.time,sol_fitted_SR_POD_Galerkin.T, levels = np.linspace(-16, 16, 9))
-    plt.colorbar()
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"$t$")
-    plt.tight_layout()
-    if sol_idx == 0:
-        plt.title(f"Fitted SRG solution, fitted error: {relative_error_fitted:.4e}, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"Fitted SRG solution, fitted error: {relative_error_fitted:.4e}, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
-    else:
-        plt.title(f"Fitted SRG solution, fitted error: {relative_error_fitted:.4e}, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "sol_SRG_fitted_%03d.png"%sol_idx)
-    plt.close()
-    
-    plt.figure(figsize=(10,6))
-    plt.contourf(x,opt_obj.time,(sol_fitted_FOM - sol_fitted_SR_POD_Galerkin).T, levels = np.linspace(-16, 16, 9))
-    plt.colorbar()
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"$t$")
-    plt.tight_layout()
-    if sol_idx == 0:
-        plt.title(f"Fitted SRG-FOM diff, fitted error: {relative_error_fitted:.4e}, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"Fitted SRG-FOM diff, fitted error: {relative_error_fitted:.4e}, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
-    else:
-        plt.title(f"Fitted SRG-FOM diff, fitted error: {relative_error_fitted:.4e}, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "sol_SRG_FOM_fitted_diff_%03d.png"%sol_idx)
-    plt.close()
-    
-    plt.figure(figsize=(10,6))
-    plt.plot(opt_obj.time, shift_amount_FOM, color='k', linewidth=2, label='FOM')
-    plt.plot(opt_obj.time, shift_amount_SR_POD_Galerkin, color='r', linewidth=2, label='SR-Galerkin ROM')
-    plt.xlabel(r"$t$")
-    plt.ylabel(r"Shift amount")
-    plt.ylim([-np.pi, np.pi])
-    plt.legend()
-    plt.tight_layout()
-    if sol_idx == 0:
-        plt.title(f"Shift amount, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"Shift amount, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
-    else:
-        plt.title(f"Shift amount, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "shift_amount_SRG_FOM_%03d.png"%sol_idx)
-    plt.close()
-    
-    plt.figure(figsize=(10,6))
-    plt.plot(opt_obj.time, shift_speed_FOM, color='k', linewidth=2, label='FOM')
-    plt.plot(opt_obj.time, shift_speed_SR_POD_Galerkin, color='r', linewidth=2, label='SR-Galerkin ROM')
-    plt.xlabel(r"$t$")
-    plt.ylabel(r"Shift speed")
-    plt.ylim([-2, 2])
-    plt.legend()
-    plt.tight_layout()
-    if sol_idx == 0:
-        plt.title(f"Shift speed, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"Shift speed, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
-    else:
-        plt.title(f"Shift speed, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "shift_speed_SRG_FOM_%03d.png"%sol_idx)
-    plt.close()
-
-relative_error_SRG_all_sol = np.mean(np.asarray(pool.comm.allgather(relative_error)))
-relative_error_SRG_fitted_all_sol = np.mean(np.asarray(pool.comm.allgather(relative_error_fitted)))
 
 # endregion
 
 # region 2: SR-NiTROM ROM
 
 Gr_Phi = manifolds.Grassmann(nx, r)
-Gr_Psi = manifolds.Grassmann(nx, r)
-# Gr_Psi = manifolds.Stiefel(nx, r)
+if manifold == "Stiefel":
+    Gr_Psi = manifolds.Stiefel(nx, r)
+elif manifold == "Grassmann":
+    Gr_Psi = manifolds.Grassmann(nx, r)
 Euc_A  = manifolds.Euclidean(r, r)
 Euc_B  = manifolds.Euclidean(r, r, r)
 Euc_p  = manifolds.Euclidean(r)
@@ -346,27 +280,67 @@ cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool
 if initialization == "POD-Galerkin":
     print("Loading POD-Galerkin results as initialization")
     point = (Phi_POD, Psi_POD) + Tensors_POD[:-2]
+    fname_Phi_NiTROM_old = data_path + "Phi_NiTROM_old.npy"
+    np.save(fname_Phi_NiTROM_old,Phi_POD)
+    fname_Psi_NiTROM_old = data_path + "Psi_NiTROM_old.npy"
+    np.save(fname_Psi_NiTROM_old,Psi_POD)
+    fname_Tensors_NiTROM_old = data_path + "Tensors_NiTROM_old.npz"
+    np.savez(fname_Tensors_NiTROM_old, *Tensors_POD)
+
 elif initialization == "Previous NiTROM":
     print("Loading previous NiTROM results as initialization (for curriculum learning)")
-    Phi_NiTROM = np.load(data_path + "Phi_NiTROM.npy")
-    Psi_NiTROM = np.load(data_path + "Psi_NiTROM.npy")
-    npzfile = np.load(data_path + "Tensors_NiTROM.npz")
-    Tensors_NiTROM = (
-        npzfile['arr_0'],
-        npzfile['arr_1'],
-        npzfile['arr_2'],
-        npzfile['arr_3'],
-        npzfile['arr_4'],
-        npzfile['arr_5']
-    )
-    point = (Phi_NiTROM, Psi_NiTROM) + Tensors_NiTROM[:-2]
-
+    if NiTROM_coeff_version == "new":
+        Phi_NiTROM = np.load(data_path + "Phi_NiTROM.npy")
+        if Phi_NiTROM.shape[1] != r:
+            raise ValueError("The loaded Phi_NiTROM has shape %s, which does not match the specified r = %d"%(str(Phi_NiTROM.shape), r))
+        
+        Psi_NiTROM = np.load(data_path + "Psi_NiTROM.npy")
+        npzfile = np.load(data_path + "Tensors_NiTROM.npz")
+        Tensors_NiTROM = (
+            npzfile['arr_0'],
+            npzfile['arr_1'],
+            npzfile['arr_2'],
+            npzfile['arr_3'],
+            npzfile['arr_4'],
+            npzfile['arr_5']
+        )
+        point = (Phi_NiTROM, Psi_NiTROM) + Tensors_NiTROM[:-2]
+        fname_Phi_NiTROM_old = data_path + "Phi_NiTROM_old.npy"
+        np.save(fname_Phi_NiTROM_old,Phi_NiTROM)
+        fname_Psi_NiTROM_old = data_path + "Psi_NiTROM_old.npy"
+        np.save(fname_Psi_NiTROM_old,Psi_NiTROM)
+        fname_Tensors_NiTROM_old = data_path + "Tensors_NiTROM_old.npz"
+        np.savez(fname_Tensors_NiTROM_old, *Tensors_NiTROM)
+    elif NiTROM_coeff_version == "old":
+        Phi_NiTROM = np.load(data_path + "Phi_NiTROM_old.npy")
+        if Phi_NiTROM.shape[1] != r:
+            raise ValueError("The loaded Phi_NiTROM has shape %s, which does not match the specified r = %d"%(str(Phi_NiTROM.shape), r))
+        
+        Psi_NiTROM = np.load(data_path + "Psi_NiTROM_old.npy")
+        npzfile = np.load(data_path + "Tensors_NiTROM_old.npz")
+        Tensors_NiTROM = (
+            npzfile['arr_0'],
+            npzfile['arr_1'],
+            npzfile['arr_2'],
+            npzfile['arr_3'],
+            npzfile['arr_4'],
+            npzfile['arr_5']
+        )
+        point = (Phi_NiTROM, Psi_NiTROM) + Tensors_NiTROM[:-2]
 
 if k0 == 0:
     costvec_NiTROM = []
     gradvec_NiTROM = []
 
 for k in range(k0, k0 + kouter):
+    
+    relative_weight_c = update_relative_weights(initial_relative_weight_c, final_relative_weight_c, sigmoid_steepness_c_weight, k - k0, kouter)
+    relative_weight_cdot = update_relative_weights(initial_relative_weight_cdot, final_relative_weight_cdot, sigmoid_steepness_cdot_weight, k - k0, kouter)
+    sufficient_decrease_rate = initial_sufficient_decrease_rate * (sufficient_decrease_rate_decay ** (k - k0))
+    step_size = initial_step_size * (step_size_decrease_rate ** (k - k0))
+    
+    if pool.rank == 0:
+        print("NiTROM training iteration %d/%d, progress: %.2f, relative weight c: %.4e, relative weight cdot: %.4e, sufficient decrease rate: %.3e"%(k+1, k0 + kouter, (k - k0) / kouter * 100, relative_weight_c, relative_weight_cdot, sufficient_decrease_rate))
 
     if training_objects == "tensors_and_bases":
 
@@ -392,16 +366,28 @@ for k in range(k0, k0 + kouter):
                                         sufficient_decrease = sufficient_decrease_rate_tensor, # how much decrease is enough to accept the step
                                         max_iterations = max_iterations,
                                         initial_step_size = initial_step_size_tensor)
+        
+    elif training_objects == "no_alternating":
+        which_fix = 'fix_none'
+        inner_iter = kinner_tensor + kinner_basis
+        line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor, # how much to reduce the step size in each iteration
+                                        sufficient_decrease = sufficient_decrease_rate, # how much decrease is enough to accept the step
+                                        max_iterations = max_iterations,
+                                        initial_step_size = step_size)
     
     opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
     opt_obj_kwargs = {
-    'sol_template_dx': pool.sol_template_dx,
-    'sol_template_dxx': pool.sol_template_dxx,
-    'spatial_derivative_method': fom.take_derivative,
+    'X_template_dx': pool.X_template_dx,
+    'X_template_dxx': pool.X_template_dxx,
+    'spatial_deriv_method': fom.spatial_deriv,
     'inner_product_method': fom.inner_product,
     'outer_product_method': fom.outer_product,
-    'relative_weight': relative_weight,
-    'which_fix': which_fix}
+    'spatial_shift_method': fom.shift,
+    'which_fix': which_fix,
+    'relative_weight_c': relative_weight_c,
+    'relative_weight_cdot': relative_weight_cdot,
+    'weight_decay_rate': weight_decay_rate
+    }
     opt_obj = classes.optimization_objects(*opt_obj_inputs,**opt_obj_kwargs)
     
     print("Optimizing (%d/%d) with which_fix = %s"%(k+1,kouter,opt_obj.which_fix))
@@ -436,25 +422,29 @@ for k in range(k0, k0 + kouter):
         
 opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
 opt_obj_kwargs = {
-    'sol_template_dx': pool.sol_template_dx,
-    'sol_template_dxx': pool.sol_template_dxx,
-    'spatial_derivative_method': fom.take_derivative,
-    'inner_product_method': fom.inner_product,
-    'outer_product_method': fom.outer_product,
-    'relative_weight': relative_weight,
-    'which_fix': 'fix_none'}
+'X_template_dx': pool.X_template_dx,
+'X_template_dxx': pool.X_template_dxx,
+'spatial_deriv_method': fom.spatial_deriv,
+'inner_product_method': fom.inner_product,
+'outer_product_method': fom.outer_product,
+'spatial_shift_method': fom.shift,
+'which_fix': which_fix,
+'relative_weight_c': relative_weight_c,
+'relative_weight_cdot': relative_weight_cdot,
+'weight_decay_rate': weight_decay_rate
+}
 opt_obj = classes.optimization_objects(*opt_obj_inputs,**opt_obj_kwargs)
 cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
 problem = pymanopt.Problem(M,cost,euclidean_gradient=grad)
-# check_gradient(problem,x=point)
+check_gradient(problem,x=point)
 
 Phi_NiTROM, Psi_NiTROM = point[0:2]
 Tensors_NiTROM_trainable = tuple(point[2:])
 PhiF_NiTROM = Phi_NiTROM @ scipy.linalg.inv(Psi_NiTROM.T@Phi_NiTROM)
-PhiF_NiTROM_dx = opt_obj.take_derivative(PhiF_NiTROM, order = 1)
+PhiF_NiTROM_dx = opt_obj.spatial_deriv(PhiF_NiTROM, order = 1)
 cdot_denom_linear = np.zeros(r)
 udx_linear = Psi_NiTROM.T @ PhiF_NiTROM_dx
-u0_dx = opt_obj.sol_template_dx
+u0_dx = opt_obj.X_template_dx
 
 for i in range(r):
     cdot_denom_linear[i] = opt_obj.inner_product(u0_dx, PhiF_NiTROM_dx[:, i])
@@ -468,183 +458,95 @@ np.save(fname_Psi_NiTROM,Psi_NiTROM)
 fname_Tensors_NiTROM = data_path + "Tensors_NiTROM.npz"
 np.savez(fname_Tensors_NiTROM, *Tensors_NiTROM)
 
-fname_sol_SR_NiTROM = sol_path + "sol_SR_NiTROM_%03d.npy" # for u
-fname_sol_fitted_SR_NiTROM = sol_path + "sol_fitted_SR_NiTROM_%03d.npy"
-fname_shift_amount_SR_NiTROM = sol_path + "shift_amount_SR_NiTROM_%03d.npy" # for shifting amount
-fname_shift_speed_SR_NiTROM = sol_path + "shift_speed_SR_NiTROM_%03d.npy"
+fname_traj_SR_NiTROM = traj_path + "traj_SRN_%03d.npy" # for u
+fname_traj_fitted_SR_NiTROM = traj_path + "traj_fitted_SRN_%03d.npy"
+fname_shift_amount_SR_NiTROM = traj_path + "shift_amount_SRN_%03d.npy" # for shifting amount
+fname_shift_speed_SR_NiTROM = traj_path + "shift_speed_SRN_%03d.npy"
+fname_relative_error_SRN = traj_path + "relative_error_SRN_%03d.npy"
 
-relative_error_all_sol = 0.0
-relative_error_fitted_all_sol = 0.0
+relative_error = np.zeros(opt_obj.n_snapshots)
+relative_error_space_time_SRN = np.zeros(pool.my_n_traj)
+
 
 test_trial_consistency_percent = 1 - np.linalg.norm(Phi_NiTROM - Psi_NiTROM)/np.linalg.norm(Phi_NiTROM)
 print("Test-trial difference of POD bases: %.4e%%"%(test_trial_consistency_percent*100))
 
-for k in range(pool.my_n_sol):
-    sol_idx = k + pool.disps[pool.rank]
-    print("Preparing SR-NiTROM simulation %d/%d"%(sol_idx,n_sol))
-    z_IC_NiTROM = Psi_NiTROM.T@opt_obj.sol_fitted[k,:,0].reshape(-1)
-    shift_amount_IC = opt_obj.shift_amount[k,0]
+for k in range(pool.my_n_traj):
+    traj_idx = k + pool.disps[pool.rank]
+    print("Preparing SR-NiTROM simulation %d/%d"%(traj_idx,n_traj))
+    z0 = Psi_NiTROM.T@opt_obj.X_fitted[k,:,0].reshape(-1)
+    c0 = opt_obj.c[k,0]
 
-    output_SR_NiTROM = solve_ivp(opt_obj.evaluate_rom_rhs,
+    sol = solve_ivp(opt_obj.evaluate_rom_rhs,
                                         [opt_obj.time[0],opt_obj.time[-1]],
-                                        np.hstack((z_IC_NiTROM, shift_amount_IC)),
+                                        np.hstack((z0, c0)),
                                         'RK45',
                                         t_eval=opt_obj.time,
                                         args=(np.zeros(r),) + Tensors_NiTROM).y
 
-    sol_fitted_SR_NiTROM = PhiF_NiTROM@output_SR_NiTROM[:-1,:]
-    shift_amount_SR_NiTROM = output_SR_NiTROM[-1,:]
-    sol_SR_NiTROM = np.zeros_like(sol_fitted_SR_NiTROM)
-    shift_speed_SR_NiTROM = np.zeros_like(shift_amount_SR_NiTROM)
+    X_fitted_SRN = PhiF_NiTROM@sol[:-1,:]
+    c_SRN = sol[-1,:]
+    X_SRN = np.zeros_like(X_fitted_SRN)
+    cdot_SRN = np.zeros_like(c_SRN)
     for j in range (len(opt_obj.time)):
-        sol_SR_NiTROM[:,j] = fom.shift(sol_fitted_SR_NiTROM[:,j], shift_amount_SR_NiTROM[j])
-        shift_speed_SR_NiTROM[j] = opt_obj.compute_shift_speed(output_SR_NiTROM[:r,j], Tensors_NiTROM)
+        X_SRN[:,j] = fom.shift(X_fitted_SRN[:,j], c_SRN[j])
+        cdot_SRN[j] = opt_obj.compute_shift_speed(sol[:-1,j], Tensors_NiTROM)
+        relative_error[j] = np.linalg.norm(opt_obj.X[k,:,j] - X_SRN[:,j]) / np.linalg.norm(opt_obj.X[k,:,j])
+        
+    relative_error_space_time_SRN[k] = np.linalg.norm(opt_obj.X[k,:,:] - X_SRN)/np.linalg.norm(opt_obj.X[k,:,:])
 
-    np.save(fname_sol_SR_NiTROM%sol_idx,sol_SR_NiTROM)
-    np.save(fname_sol_fitted_SR_NiTROM%sol_idx,sol_fitted_SR_NiTROM)
-    np.save(fname_shift_amount_SR_NiTROM%sol_idx,shift_amount_SR_NiTROM)
-    np.save(fname_shift_speed_SR_NiTROM%sol_idx,shift_speed_SR_NiTROM)
-    
-    sol_FOM = opt_obj.sol[k,:,:]
-    sol_fitted_FOM = opt_obj.sol_fitted[k,:,:]  
-    shift_amount_FOM = opt_obj.shift_amount[k,:]
-    
-    relative_error = np.linalg.norm(sol_FOM - sol_SR_NiTROM)/np.linalg.norm(sol_FOM)
-    relative_error_fitted = np.linalg.norm(sol_fitted_FOM - sol_fitted_SR_NiTROM)/np.linalg.norm(sol_fitted_FOM)
-    # print("Relative error of SR-NiTROM: %.4e"%(relative_error))
-    # print("Relative error of fitted SR-NiTROM: %.4e"%(relative_error_fitted))
+    np.save(fname_traj_SR_NiTROM%traj_idx,X_SRN)
+    np.save(fname_traj_fitted_SR_NiTROM%traj_idx,X_fitted_SRN)
+    np.save(fname_shift_amount_SR_NiTROM%traj_idx,c_SRN)
+    np.save(fname_shift_speed_SR_NiTROM%traj_idx,cdot_SRN)
+    np.save(fname_relative_error_SRN%traj_idx,relative_error)
 
     plt.figure(figsize=(10,6))
-    plt.contourf(x,opt_obj.time,sol_FOM.T, levels = np.linspace(-16, 16, 9))
+    plt.contourf(x,opt_obj.time,X_SRN.T, levels = np.linspace(-16, 16, 9), cmap=cmap_name)
     plt.colorbar()
     plt.xlabel(r"$x$")
     plt.ylabel(r"$t$")
     plt.tight_layout()
-    if sol_idx == 0:
-        plt.title(f"FOM solution, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"FOM solution, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
+    if traj_idx == 0:
+        plt.title(f"SRN solution, error: {relative_error_space_time_SRN[k]:.4e}, initial condition = uIC")
     else:
-        plt.title(f"FOM solution, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "sol_FOM_%03d.png"%sol_idx)
+        plt.title(f"SRN solution, error: {relative_error_space_time_SRN[k]:.4e}, initial condition = uIC + {amp_array[traj_idx - 1]} * sin(x)")
+    plt.savefig(fig_path + "traj_SRN_%03d.png"%traj_idx)
     plt.close()
 
     plt.figure(figsize=(10,6))
-    plt.contourf(x,opt_obj.time,sol_SR_NiTROM.T, levels = np.linspace(-16, 16, 9))
-    plt.colorbar()
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"$t$")
-    plt.tight_layout()
-    if sol_idx == 0:
-        plt.title(f"SRN solution, error: {relative_error:.4e}, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"SRN solution, error: {relative_error:.4e}, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
-    else:
-        plt.title(f"SRN solution, error: {relative_error:.4e}, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "sol_SRN_%03d.png"%sol_idx)
-    plt.close()
-
-    plt.figure(figsize=(10,6))
-    plt.contourf(x,opt_obj.time,(sol_FOM - sol_SR_NiTROM).T, levels = np.linspace(-16, 16, 9))
-    plt.colorbar()
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"$t$")
-    plt.tight_layout()
-    if sol_idx == 0:
-        plt.title(f"SRN-FOM diff, error: {relative_error:.4e}, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"SRN-FOM diff, error: {relative_error:.4e}, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
-    else:
-        plt.title(f"SRN-FOM diff, error: {relative_error:.4e}, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "sol_SRN_FOM_diff_%03d.png"%sol_idx)
-    plt.close()
-    
-    plt.figure(figsize=(10,6))
-    plt.contourf(x,opt_obj.time,sol_fitted_FOM.T, levels = np.linspace(-16, 16, 9))
-    plt.colorbar()
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"$t$")
-    plt.tight_layout()
-    if sol_idx == 0:
-        plt.title(f"Fitted FOM solution, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"Fitted FOM solution, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
-    else:
-        plt.title(f"Fitted FOM solution, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "sol_FOM_fitted_%03d.png"%sol_idx)
-    plt.close()
-    
-    plt.figure(figsize=(10,6))
-    plt.contourf(x,opt_obj.time,sol_fitted_SR_NiTROM.T, levels = np.linspace(-16, 16, 9))
-    plt.colorbar()
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"$t$")
-    plt.tight_layout()
-    if sol_idx == 0:
-        plt.title(f"Fitted SRN solution, error: {relative_error_fitted:.4e}, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"Fitted SRN solution, error: {relative_error_fitted:.4e}, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
-    else:
-        plt.title(f"Fitted SRN solution, error: {relative_error_fitted:.4e}, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "sol_SRN_fitted_%03d.png"%sol_idx)
-    plt.close()
-    
-    plt.figure(figsize=(10,6))
-    plt.contourf(x,opt_obj.time,(sol_fitted_FOM - sol_fitted_SR_NiTROM).T, levels = np.linspace(-16, 16, 9))
-    plt.colorbar()
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"$t$")
-    plt.tight_layout()
-    if sol_idx == 0:
-        plt.title(f"Fitted SRN-FOM diff, error: {relative_error_fitted:.4e}, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"Fitted SRN-FOM diff, error: {relative_error_fitted:.4e}, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
-    else:
-        plt.title(f"Fitted SRN-FOM diff, error: {relative_error_fitted:.4e}, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "sol_SRN_FOM_fitted_diff_%03d.png"%sol_idx)
-    plt.close()
-
-    plt.figure(figsize=(10,6))
-    plt.plot(opt_obj.time, shift_amount_FOM, color='k', linewidth=2, label='FOM')
-    plt.plot(opt_obj.time, shift_amount_SR_POD_Galerkin, color='r', linewidth=2, label='SR-Galerkin ROM')
-    plt.plot(opt_obj.time, shift_amount_SR_NiTROM, color='b', linewidth=2, label='SR-NiTROM ROM')
+    plt.plot(opt_obj.time, opt_obj.c[k,:], color='k', linewidth=2, label='FOM')
+    plt.plot(opt_obj.time, c_SRG, color='r', linewidth=2, label='SR-Galerkin ROM')
+    plt.plot(opt_obj.time, c_SRN, color='b', linewidth=2, label='SR-NiTROM ROM')
     plt.xlabel(r"$t$")
     plt.ylabel(r"Shift amount")
     plt.ylim([-np.pi, np.pi])
     plt.legend()
-    if sol_idx == 0:
+    if traj_idx == 0:
         plt.title(f"Shift amount, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"Shift amount, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
     else:
-        plt.title(f"Shift amount, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "shift_amount_SRN_FOM_%03d.png"%sol_idx)
+        plt.title(f"Shift amount, initial condition = uIC + {amp_array[traj_idx - 1]} * sin(x)")
+    plt.savefig(fig_path + "shift_amount_%03d.png"%traj_idx)
     plt.close()
     
     plt.figure(figsize=(10,6))
-    plt.plot(opt_obj.time, shift_speed_FOM, color='k', linewidth=2, label='FOM')
-    plt.plot(opt_obj.time, shift_speed_SR_POD_Galerkin, color='r', linewidth=2, label='SR-Galerkin ROM')
-    plt.plot(opt_obj.time, shift_speed_SR_NiTROM, color='b', linewidth=2, label='SR-NiTROM ROM')
+    plt.plot(opt_obj.time, opt_obj.cdot[k,:], color='k', linewidth=2, label='FOM')
+    plt.plot(opt_obj.time, cdot_SRG, color='r', linewidth=2, label='SR-Galerkin ROM')
+    plt.plot(opt_obj.time, cdot_SRN, color='b', linewidth=2, label='SR-NiTROM ROM')
     plt.xlabel(r"$t$")
     plt.ylabel(r"Shift speed")
     plt.ylim([-2, 2])
     plt.legend()
-    if sol_idx == 0:
+    if traj_idx == 0:
         plt.title(f"Shift speed, initial condition = uIC")
-    elif 1 <= sol_idx <= (n_sol - 1) // 2:
-        plt.title(f"Shift speed, initial condition = uIC + {perturbation_amp} * cos({sol_idx} * x)")
     else:
-        plt.title(f"Shift speed, initial condition = uIC + {perturbation_amp} * sin({sol_idx - (n_sol-1)//2} * x)")
-    plt.savefig(fig_path + "shift_speed_SRN_FOM_%03d.png"%sol_idx)
+        plt.title(f"Shift speed, initial condition = uIC + {amp_array[traj_idx - 1]} * sin(x)")
+    plt.savefig(fig_path + "shift_speed_%03d.png"%traj_idx)
     plt.close()
 
-relative_error_SRN_all_sol = np.mean(np.asarray(pool.comm.allgather(relative_error)))
-relative_error_SRN_fitted_all_sol = np.mean(np.asarray(pool.comm.allgather(relative_error_fitted)))
 if pool.rank == 0:
-    print("Mean relative error of SR-Galerkin for all solutions: %.4e"%(relative_error_SRG_all_sol))
-    print("Mean relative error of fitted SR-Galerkin for all solutions: %.4e"%(relative_error_SRG_fitted_all_sol))
-    print("Mean relative error of SR-NiTROM for all solutions: %.4e"%(relative_error_SRN_all_sol))
-    print("Mean relative error of fitted SR-NiTROM for all solutions: %.4e"%(relative_error_SRN_fitted_all_sol))
+    print("Mean relative error of SR-Galerkin for all solutions: %.4e"%(np.mean(relative_error_space_time_SRG)))
+    print("Mean relative error of SR-NiTROM for all solutions: %.4e"%(np.mean(relative_error_space_time_SRN)))
 
 ### plot the training error
 
@@ -659,16 +561,16 @@ plt.tight_layout()
 plt.savefig(fig_path + f"training_error_NiTROM_start_time_{snapshot_start_time_NiTROM_training}_end_time_{snapshot_end_time_NiTROM_training}.png")
 plt.close()
 
-### Save the training information
-# Combine data and create a header for saving
-training_data = np.array([kouter, kinner_basis, kinner_tensor, r, relative_weight, initial_step_size_basis, initial_step_size_tensor, sufficient_decrease_rate_basis, sufficient_decrease_rate_tensor, contraction_factor_basis, contraction_factor_tensor, max_iterations])
-header_str = "kouter, kinner_basis, kinner_tensor, r, relative_weight, initial_step_size_basis, initial_step_size_tensor, sufficient_decrease_rate_basis, sufficient_decrease_rate_tensor, contraction_factor_basis, contraction_factor_tensor, max_iterations"
+# ### Save the training information
+# # Combine data and create a header for saving
+# training_data = np.array([kouter, kinner_basis, kinner_tensor, r, relative_weight, initial_step_size_basis, initial_step_size_tensor, sufficient_decrease_rate_basis, sufficient_decrease_rate_tensor, contraction_factor_basis, contraction_factor_tensor, max_iterations])
+# header_str = "kouter, kinner_basis, kinner_tensor, r, relative_weight, initial_step_size_basis, initial_step_size_tensor, sufficient_decrease_rate_basis, sufficient_decrease_rate_tensor, contraction_factor_basis, contraction_factor_tensor, max_iterations"
 
-# Define a unique filename for each simulation's training info
-fname_training_info = data_path + "training_hyperparameters_information_NiTROM.txt"
-# Save the training information
-# Using .reshape(1, -1) to save it as a single row
-np.savetxt(fname_training_info, training_data.reshape(1, -1), delimiter=',', header=header_str, comments='')
-print(f"Saved training information to {fname_training_info}")
+# # Define a unique filename for each simulation's training info
+# fname_training_info = data_path + "training_hyperparameters_information_NiTROM.txt"
+# # Save the training information
+# # Using .reshape(1, -1) to save it as a single row
+# np.savetxt(fname_training_info, training_data.reshape(1, -1), delimiter=',', header=header_str, comments='')
+# print(f"Saved training information to {fname_training_info}")
 
 # endregion

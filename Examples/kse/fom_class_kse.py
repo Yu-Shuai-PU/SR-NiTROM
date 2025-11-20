@@ -137,7 +137,7 @@ class KSE:
 
             return sol_fitted, c
 
-    def take_derivative(self, u, order):
+    def spatial_deriv(self, u, order):
 
         """Take spatial derivative of order 'order' of u(x).
         
@@ -221,7 +221,7 @@ class KSE:
         M_mat = np.zeros((r, r))
 
         PhiF = Phi@scipy.linalg.inv(Psi.T@Phi)
-        PhiF_dx = self.take_derivative(PhiF, order=1)
+        PhiF_dx = self.spatial_deriv(PhiF, order=1)
         
         u0_dx = self.u_template_dx
         # u0_dxx = - self.u_template

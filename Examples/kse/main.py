@@ -193,6 +193,13 @@ fname_traj_fitted_SRG = traj_path + "traj_fitted_SRG_%03d.npy"
 fname_shift_amount_SRG = traj_path + "shift_amount_SRG_%03d.npy" # for shifting amount
 fname_shift_speed_SRG = traj_path + "shift_speed_SRG_%03d.npy"
 fname_relative_error_SRG = traj_path + "relative_error_SRG_%03d.npy"
+fname_traj_FOM = traj_path + "traj_FOM_%03d.npy" # for u
+fname_traj_fitted_FOM = traj_path + "traj_fitted_FOM_%03d.npy"
+fname_shift_amount_FOM = traj_path + "shift_amount_FOM_%03d.npy" # for shifting amount
+fname_shift_speed_FOM = traj_path + "shift_speed_FOM_%03d.npy"
+fname_time_reconstruction = traj_path + "time_reconstruction.npy"
+
+np.save(fname_time_reconstruction,opt_obj.time)
 
 relative_error = np.zeros(opt_obj.n_snapshots)
 relative_error_space_time_SRG = np.zeros(pool.my_n_traj)
@@ -222,12 +229,21 @@ for k in range(pool.my_n_traj):
         relative_error[j] = np.linalg.norm(opt_obj.X[k,:,j] - X_SRG[:,j]) / np.linalg.norm(opt_obj.X[k,:,j])
         
     relative_error_space_time_SRG[k] = np.linalg.norm(opt_obj.X[k,:,:] - X_SRG)/np.linalg.norm(opt_obj.X[k,:,:])
+    X_FOM = opt_obj.X[k,:,:]
+    c_FOM = opt_obj.c[k,:]
+    cdot_FOM = opt_obj.cdot[k,:]
+    X_fitted_FOM = opt_obj.X_fitted[k,:,:]
         
+    np.save(fname_traj_FOM%traj_idx,X_FOM)
+    np.save(fname_traj_fitted_FOM%traj_idx,X_fitted_FOM)
+    np.save(fname_shift_amount_FOM%traj_idx,c_FOM)
+    np.save(fname_shift_speed_FOM%traj_idx,cdot_FOM)    
     np.save(fname_traj_SRG%traj_idx,X_SRG)
     np.save(fname_traj_fitted_SRG%traj_idx,X_fitted_SRG)
     np.save(fname_shift_amount_SRG%traj_idx,c_SRG)
     np.save(fname_shift_speed_SRG%traj_idx,cdot_SRG)
     np.save(fname_relative_error_SRG%traj_idx,relative_error)
+    
     
     ### Plotting, things to be done:
     ### 1. switch from contourf to pcolormesh

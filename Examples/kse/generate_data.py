@@ -68,9 +68,15 @@ fname_shift_amount = traj_path + "shift_amount_%03d.npy" # for shifting amount
 fname_shift_speed = traj_path + "shift_speed_%03d.npy" # for shifting speed
 fname_time = traj_path + "time.npy"
 
+# The initial condition is generated as follows:
+# 1. start from an initial condition
+#     u = -sin(x) + 2cos(2x) + 3cos(3x) - 4sin(4x)
+# 2. stop at specific time (post transient, here we choose t_start = 80)
+# 3. record this snapshot as the base initial condition
+
 n_traj = 9
 traj_IC_array = np.zeros((nx, n_traj))
-traj_IC_original = np.loadtxt(data_path + f"initial_condition_time_{start_time}.txt").reshape(-1)
+traj_IC_original = np.loadtxt(f"initial_condition_time_{start_time}.txt").reshape(-1) 
 amp = 1.0
 amp_array = np.array([-1.0, -0.5, -0.2, -0.1, 0.1, 0.2, 0.5, 1.0]) * amp
 cmap_name = 'bwr'

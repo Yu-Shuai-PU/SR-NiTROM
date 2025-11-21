@@ -111,25 +111,25 @@ training_objects = "no_alternating"
 manifold = "Grassmann" # "Grassmann" or "Stiefel" for Psi manifold
 # manifold = "Stiefel"
 weight_decay_rate = 1 # if weight_decay_rate is not 1, then the snapshots at larger times will be given less weights in the cost function
-r = 12 # ROM dimension
-initial_relative_weight_c = 0.1 # as the training iterations go on, we will gradually increase the weight of shift amount term in the cost function
-final_relative_weight_c = 0.1  # the final relative weight
+r = 10 # ROM dimension
+initial_relative_weight_c = 0.5 # as the training iterations go on, we will gradually increase the weight of shift amount term in the cost function
+final_relative_weight_c = 0.5  # the final relative weight
 sigmoid_steepness_c_weight = 2.0
-initial_relative_weight_cdot = 0.01
-final_relative_weight_cdot = 0.01
+initial_relative_weight_cdot = 0.05
+final_relative_weight_cdot = 0.05
 sigmoid_steepness_cdot_weight = 2.0
 k0 = 0
-kouter = 4
-kinner_basis = 5
-kinner_tensor = 5
+kouter = 50
+kinner_basis = 3
+kinner_tensor = 3
 initial_step_size_basis = 1e-1
 initial_step_size_tensor = 1e-3
 initial_step_size = 1e-3
-step_size_decrease_rate = 0.9
+initial_step_size_decrease_rate = 0.9
 sufficient_decrease_rate_basis = 1e-3
 sufficient_decrease_rate_tensor = 1e-3
 initial_sufficient_decrease_rate = 1e-3
-sufficient_decrease_rate_decay = 0.9
+sufficient_decrease_rate_decay = 0.99
 contraction_factor_tensor = 0.6
 contraction_factor_basis = 0.6
 contraction_factor = 0.6
@@ -197,13 +197,12 @@ fname_traj_FOM = traj_path + "traj_FOM_%03d.npy" # for u
 fname_traj_fitted_FOM = traj_path + "traj_fitted_FOM_%03d.npy"
 fname_shift_amount_FOM = traj_path + "shift_amount_FOM_%03d.npy" # for shifting amount
 fname_shift_speed_FOM = traj_path + "shift_speed_FOM_%03d.npy"
-fname_time_reconstruction = traj_path + "time_reconstruction.npy"
+fname_time_reconstruction = traj_path + "time_reconstruction.npy" # for plotting, in case our training & reconstruction timespan is shorter than the entire simulation timespan
 
 np.save(fname_time_reconstruction,opt_obj.time)
 
 relative_error = np.zeros(opt_obj.n_snapshots)
 relative_error_space_time_SRG = np.zeros(pool.my_n_traj)
-# relative_error_fitted = 0.0
 
 for k in range(pool.my_n_traj):
     traj_idx = k + pool.disps[pool.rank]
@@ -243,7 +242,6 @@ for k in range(pool.my_n_traj):
     np.save(fname_shift_amount_SRG%traj_idx,c_SRG)
     np.save(fname_shift_speed_SRG%traj_idx,cdot_SRG)
     np.save(fname_relative_error_SRG%traj_idx,relative_error)
-    
     
     ### Plotting, things to be done:
     ### 1. switch from contourf to pcolormesh
@@ -353,7 +351,7 @@ for k in range(k0, k0 + kouter):
     relative_weight_c = update_relative_weights(initial_relative_weight_c, final_relative_weight_c, sigmoid_steepness_c_weight, k - k0, kouter)
     relative_weight_cdot = update_relative_weights(initial_relative_weight_cdot, final_relative_weight_cdot, sigmoid_steepness_cdot_weight, k - k0, kouter)
     sufficient_decrease_rate = initial_sufficient_decrease_rate * (sufficient_decrease_rate_decay ** (k - k0))
-    step_size = initial_step_size * (step_size_decrease_rate ** (k - k0))
+    step_size = initial_step_size * (initial_step_size_decrease_rate ** (k - k0))
     
     if pool.rank == 0:
         print("NiTROM training iteration %d/%d, progress: %.2f, relative weight c: %.4e, relative weight cdot: %.4e, sufficient decrease rate: %.3e"%(k+1, k0 + kouter, (k - k0) / kouter * 100, relative_weight_c, relative_weight_cdot, sufficient_decrease_rate))
@@ -436,23 +434,23 @@ for k in range(k0, k0 + kouter):
         costvec_NiTROM.extend(costvec_NiTROM_k[1:])
         gradvec_NiTROM.extend(gradvec_NiTROM_k[1:])
         
-opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
-opt_obj_kwargs = {
-'X_template_dx': pool.X_template_dx,
-'X_template_dxx': pool.X_template_dxx,
-'spatial_deriv_method': fom.spatial_deriv,
-'inner_product_method': fom.inner_product,
-'outer_product_method': fom.outer_product,
-'spatial_shift_method': fom.shift,
-'which_fix': which_fix,
-'relative_weight_c': relative_weight_c,
-'relative_weight_cdot': relative_weight_cdot,
-'weight_decay_rate': weight_decay_rate
-}
-opt_obj = classes.optimization_objects(*opt_obj_inputs,**opt_obj_kwargs)
-cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
-problem = pymanopt.Problem(M,cost,euclidean_gradient=grad)
-check_gradient(problem,x=point)
+# opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
+# opt_obj_kwargs = {
+# 'X_template_dx': pool.X_template_dx,
+# 'X_template_dxx': pool.X_template_dxx,
+# 'spatial_deriv_method': fom.spatial_deriv,
+# 'inner_product_method': fom.inner_product,
+# 'outer_product_method': fom.outer_product,
+# 'spatial_shift_method': fom.shift,
+# 'which_fix': which_fix,
+# 'relative_weight_c': relative_weight_c,
+# 'relative_weight_cdot': relative_weight_cdot,
+# 'weight_decay_rate': weight_decay_rate
+# }
+# opt_obj = classes.optimization_objects(*opt_obj_inputs,**opt_obj_kwargs)
+# cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
+# problem = pymanopt.Problem(M,cost,euclidean_gradient=grad)
+# check_gradient(problem,x=point)
 
 Phi_NiTROM, Psi_NiTROM = point[0:2]
 Tensors_NiTROM_trainable = tuple(point[2:])
@@ -474,15 +472,14 @@ np.save(fname_Psi_NiTROM,Psi_NiTROM)
 fname_Tensors_NiTROM = data_path + "Tensors_NiTROM.npz"
 np.savez(fname_Tensors_NiTROM, *Tensors_NiTROM)
 
-fname_traj_SR_NiTROM = traj_path + "traj_SRN_%03d.npy" # for u
-fname_traj_fitted_SR_NiTROM = traj_path + "traj_fitted_SRN_%03d.npy"
-fname_shift_amount_SR_NiTROM = traj_path + "shift_amount_SRN_%03d.npy" # for shifting amount
-fname_shift_speed_SR_NiTROM = traj_path + "shift_speed_SRN_%03d.npy"
+fname_traj_SRN = traj_path + "traj_SRN_%03d.npy" # for u
+fname_traj_fitted_SRN = traj_path + "traj_fitted_SRN_%03d.npy"
+fname_shift_amount_SRN = traj_path + "shift_amount_SRN_%03d.npy" # for shifting amount
+fname_shift_speed_SRN = traj_path + "shift_speed_SRN_%03d.npy"
 fname_relative_error_SRN = traj_path + "relative_error_SRN_%03d.npy"
 
 relative_error = np.zeros(opt_obj.n_snapshots)
 relative_error_space_time_SRN = np.zeros(pool.my_n_traj)
-
 
 test_trial_consistency_percent = 1 - np.linalg.norm(Phi_NiTROM - Psi_NiTROM)/np.linalg.norm(Phi_NiTROM)
 print("Test-trial difference of POD bases: %.4e%%"%(test_trial_consistency_percent*100))
@@ -511,10 +508,10 @@ for k in range(pool.my_n_traj):
         
     relative_error_space_time_SRN[k] = np.linalg.norm(opt_obj.X[k,:,:] - X_SRN)/np.linalg.norm(opt_obj.X[k,:,:])
 
-    np.save(fname_traj_SR_NiTROM%traj_idx,X_SRN)
-    np.save(fname_traj_fitted_SR_NiTROM%traj_idx,X_fitted_SRN)
-    np.save(fname_shift_amount_SR_NiTROM%traj_idx,c_SRN)
-    np.save(fname_shift_speed_SR_NiTROM%traj_idx,cdot_SRN)
+    np.save(fname_traj_SRN%traj_idx,X_SRN)
+    np.save(fname_traj_fitted_SRN%traj_idx,X_fitted_SRN)
+    np.save(fname_shift_amount_SRN%traj_idx,c_SRN)
+    np.save(fname_shift_speed_SRN%traj_idx,cdot_SRN)
     np.save(fname_relative_error_SRN%traj_idx,relative_error)
 
     plt.figure(figsize=(10,6))

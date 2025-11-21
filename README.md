@@ -60,6 +60,9 @@ pip3 list | grep -E "pymanopt|autograd|torch|jax|tensorflow"
     **Note:** Replace `<N_CPU>` with the number of CPU processors you want to use.
     * *Constraint:* The number of processors must be **less than** the number of input trajectories.
 
+3.  For testing of trained ROMs:
+    We are now finishing cleanups. To be published for usage on Friday.
+
 ## 📚 Reference
 
 This work implements the **SR-NiTROM** method. It builds upon the original NiTROM algorithm:

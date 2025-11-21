@@ -84,7 +84,7 @@ cmap_name = 'bwr'
 traj_IC_array[:, 0] = traj_IC_original
 for idx_k, k in enumerate(amp_array):
     traj_IC_array[:, idx_k + 1] = traj_IC_original + k * np.sin(2 * np.pi / L * x)
-    print(f"initial condition No.{idx_k + 1}, perturbation amp proportion = {np.sqrt(np.linalg.norm(traj_IC_array[:, idx_k + 1] - traj_IC_original)**2 / np.linalg.norm(traj_IC_original)**2):.4f}")
+    # print(f"initial condition No.{idx_k + 1}, perturbation amp proportion = {np.sqrt(np.linalg.norm(traj_IC_array[:, idx_k + 1] - traj_IC_original)**2 / np.linalg.norm(traj_IC_original)**2):.4f}")
 
 # for k in range (1, n_traj):
 #     # Here we want to use random perturbations

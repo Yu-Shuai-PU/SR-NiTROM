@@ -17,23 +17,18 @@ Before running the code, ensure you have the following dependencies installed:
 
 ## 🛠 Installation
 
-This package has been tested on **macOS (M4 chip)**.
+This package has been tested on **macOS (M4 chip)**. To install the required libraries, please type the following commands in the terminal:
 
-### Installing PyManopt with Backend
-You need to install `pymanopt` along with a backend for automatic differentiation. Choose **one** of the following backends based on your preference:
+```bash
+pip3 install numpy scipy matplotlib mpi4py pymanopt autograd
+```
+
+Here, the argument `autograd` is one of the backends of `pymanopt` for automatic differentiation. Recommended choices are shown below:
 
 * `autograd` (Recommended)
 * `torch`
 * `jax`
 * `tensorflow`
-
-Run the following command in your terminal:
-
-```bash
-# Syntax: pip3 install pymanopt <backend>
-# Example using Autograd (Recommended):
-pip3 install pymanopt autograd
-```
 
 ### Verify Installation
 To confirm that the installation was successful, check the installed packages:

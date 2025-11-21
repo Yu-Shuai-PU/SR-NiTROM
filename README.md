@@ -52,8 +52,9 @@ pip3 list | grep -E "pymanopt|autograd|torch|jax|tensorflow"
     ```
     *(Replace `<Subfolder_Name>` with the specific example folder you wish to run)*
 
-2.  Run the main script using MPI:
+2.  Run the scripts using MPI to generate training data and train the model:
     ```bash
+    mpiexec -n <N_CPU> python3 generate_data.py
     mpiexec -n <N_CPU> python3 main.py
     ```
 

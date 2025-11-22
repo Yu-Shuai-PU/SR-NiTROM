@@ -43,19 +43,34 @@ pip3 list | grep -E "pymanopt|autograd|torch|jax|tensorflow"
     ```bash
     cd Examples/<Subfolder_Name>
     ```
-    *(Replace `<Subfolder_Name>` with the specific example folder you wish to run)*
+    *(Replace `<Subfolder_Name>` with the specific example folder you wish to run, **up to now only the "kse" subfolder is available for demo**)*
 
 2.  Run the scripts using MPI to generate training data and train the model:
     ```bash
-    mpiexec -n <N_CPU> python3 generate_data.py
-    mpiexec -n <N_CPU> python3 main.py
+    mpiexec -n <N_CPU> python3 generate_training_data.py
+    mpiexec -n <N_CPU> python3 train_SR_NiTROM.py
+    mpiexec -n <N_CPU> python3 generate_testing_data.py
+    mpiexec -n <N_CPU> python3 test_SR_NiTROM.py
+    python3 plot.py
     ```
+    During the process, you will then see several automatically created folders containing trained coefficients, output trajectories and figures for training and testing dataset.
 
     **Note:** Replace `<N_CPU>` with the number of CPU processors you want to use.
     * *Constraint:* The number of processors must be **less than** the number of input trajectories.
 
-3.  For testing of trained ROMs:
-    We are now finishing cleanups. To be published for usage on Friday.
+3. Tips of the training for SR-NiTROM:
+
+We are using curriculum learning method to solve the non-convex optimization problem of SR-NiTROM. To this end, we first extract POD-Galerkin bases and
+coefficients as the initial guess over the entire timespan of training trajectories. Afterwards, we train iteratively starting from short trajectory slices to longer ones 
+to help maintain a robust training process. 
+
+To adjust the timespan of trajectory for training SR-NiTROM coefficients from its initial guess, navigate to /Examples/kse/train_SR_NiTROM.py and modify these variables:
+    ```python
+    timespan_percentage_POD = 1.00 # percentage of the entire timespan used for POD
+    timespan_percentage_NiTROM_training = 0.025 # percentage of the entire timespan used for NiTROM training
+    ```
+
+To reproduce results, please use our benchmark 10-dimensional SR-NiTROM for model reduction. Its bases and coefficients are stored in /Examples/kse/archive_benchmark_10_modes for that specific system. 
 
 ## 📚 Reference
 

@@ -64,11 +64,7 @@ We are using curriculum learning method to solve the non-convex optimization pro
 coefficients as the initial guess over the entire timespan of training trajectories. Afterwards, we train iteratively starting from short trajectory slices to longer ones 
 to help maintain a robust training process. 
 
-To adjust the timespan of trajectory for training SR-NiTROM coefficients from its initial guess, navigate to /Examples/kse/train_SR_NiTROM.py and modify these variables:
-    ```bash
-    timespan_percentage_POD = 1.00 # percentage of the entire timespan used for POD
-    timespan_percentage_NiTROM_training = 0.025 # percentage of the entire timespan used for NiTROM training
-    ```
+To adjust the timespan of trajectory for training SR-NiTROM coefficients from its initial guess, navigate to /Examples/kse/train_SR_NiTROM.py and modify the variables `timespan_percentage_POD = 1.00` and `timespan_percentage_NiTROM_training = 0.025`.
 
 To reproduce results, please use our benchmark 10-dimensional SR-NiTROM for model reduction. Its bases and coefficients are stored in /Examples/kse/archive_benchmark_10_modes for that specific system. 
 

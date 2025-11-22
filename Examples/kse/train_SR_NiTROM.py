@@ -91,6 +91,7 @@ pool_kwargs = {'fname_time':fname_time, 'fname_traj':fname_traj,'fname_traj_fitt
 pool = classes.mpi_pool(*pool_inputs,**pool_kwargs)
 pool.load_data()
 
+T_final = pool.time[-1]
 
 # region 0: Set up NiTROM training parameters
 # Our policy is like: we find the POD bases from the entire training dataset,
@@ -129,10 +130,12 @@ sufficient_decrease_rate_decay = 0.99
 contraction_factor_tensor = 0.6
 contraction_factor_basis = 0.6
 contraction_factor = 0.6
-snapshot_start_time_POD = 0
-snapshot_end_time_POD = 1 + int(4 * (pool.n_snapshots - 1) // 4) # 1001
-snapshot_start_time_NiTROM_training = 0
-snapshot_end_time_NiTROM_training = 1 + int(0.1 * (pool.n_snapshots - 1) // 4)
+timespan_percentage_POD = 1.00 # percentage of the entire timespan used for POD
+timespan_percentage_NiTROM_training = 0.025 # percentage of the entire timespan used for NiTROM training
+snapshot_start_time_idx_POD = 0
+snapshot_end_time_idx_POD = 1 + int(timespan_percentage_POD * (pool.n_snapshots - 1)) # 1001
+snapshot_start_time_idx_NiTROM_training = 0
+snapshot_end_time_idx_NiTROM_training = 1 + int(timespan_percentage_NiTROM_training * (pool.n_snapshots - 1))
 
 # endregion
 
@@ -144,7 +147,7 @@ if pool.rank != 0:
     sys.stdout = open(os.devnull, 'w')
 
 which_trajs = np.arange(0, pool.my_n_traj, 1)
-which_times = np.arange(snapshot_start_time_POD,snapshot_end_time_POD,1)
+which_times = np.arange(snapshot_start_time_idx_POD,snapshot_end_time_idx_POD,1)
 L = 2 * np.pi
 nx = 40
 x = np.linspace(0, L, num=nx, endpoint=False)
@@ -162,7 +165,7 @@ PhiF_POD = Phi_POD@scipy.linalg.inv(Psi_POD.T@Phi_POD)
 fom = fom_class_kse.KSE(L, nu, nx, pool.X_template, pool.X_template_dx)
 
 which_trajs = np.arange(0, pool.my_n_traj, 1)
-which_times = np.arange(snapshot_start_time_NiTROM_training,snapshot_end_time_NiTROM_training,1)
+which_times = np.arange(snapshot_start_time_idx_NiTROM_training,snapshot_end_time_idx_NiTROM_training,1)
 
 opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
 opt_obj_kwargs = {

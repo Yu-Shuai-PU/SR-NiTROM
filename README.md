@@ -65,7 +65,7 @@ coefficients as the initial guess over the entire timespan of training trajector
 to help maintain a robust training process. 
 
 To adjust the timespan of trajectory for training SR-NiTROM coefficients from its initial guess, navigate to /Examples/kse/train_SR_NiTROM.py and modify these variables:
-    ```python
+    ```bash
     timespan_percentage_POD = 1.00 # percentage of the entire timespan used for POD
     timespan_percentage_NiTROM_training = 0.025 # percentage of the entire timespan used for NiTROM training
     ```

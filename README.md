@@ -12,15 +12,16 @@ Before running the code, ensure you have the following dependencies installed:
 - NumPy
 - SciPy
 - Matplotlib
-- MPI4Py
-- **PyManopt** (See installation below)
+- MPI4Py (https://mpi4py.readthedocs.io, along with OpenMPI https://www.open-mpi.org)
+- PyManopt (https://pymanopt.org)
 
 ## 🛠 Installation
 
 This package has been tested on **macOS (M4 chip)**. To install the required libraries, please type the following commands in the terminal:
 
 ```bash
-pip3 install numpy scipy matplotlib mpi4py pymanopt autograd
+pip3 install numpy scipy matplotlib mpi4py openmpi
+pip3 install pymanopt autograd
 ```
 
 Here, the argument `autograd` is one of the backends of `pymanopt` for automatic differentiation. Recommended choices are shown below:
@@ -30,14 +31,11 @@ Here, the argument `autograd` is one of the backends of `pymanopt` for automatic
 * `jax`
 * `tensorflow`
 
-### Verify Installation
-To confirm that the installation was successful, check the installed packages:
+To confirm that the installation of PyManopt was successful, check the installed packages:
 
 ```bash
 pip3 list | grep -E "pymanopt|autograd|torch|jax|tensorflow"
 ```
-
-> For further reference, please visit the [PyManopt Documentation](https://pymanopt.org).
 
 ## 🚀 Running the Demo
 

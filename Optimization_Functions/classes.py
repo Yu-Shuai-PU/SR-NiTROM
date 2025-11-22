@@ -59,21 +59,23 @@ class mpi_pool:
     def load_trajectories(self,kwargs):
         
         fname_traj = kwargs.get('fname_traj',None)
-        self.fnames_traj = [fname_traj%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-        X = [np.load(self.fnames_traj[k]) for k in range (self.my_n_traj)]
-        self.N, self.n_snapshots = X[0].shape
+        if fname_traj != None:
+            self.fnames_traj = [fname_traj%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
+            X = [np.load(self.fnames_traj[k]) for k in range (self.my_n_traj)]
+            self.n_snapshots = X[0].shape[1]
+            
+            self.X = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
         
-        self.X = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
-        
-        for k in range (self.my_n_traj): self.X[k,] = X[k]
+            for k in range (self.my_n_traj): self.X[k,] = X[k]
         
         fname_traj_fitted = kwargs.get('fname_traj_fitted',None)
-        self.fnames_traj_fitted = [fname_traj_fitted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-        X_fitted = [np.load(self.fnames_traj_fitted[k]) for k in range (self.my_n_traj)]
-        
-        self.X_fitted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
+        if fname_traj_fitted != None:
+            self.fnames_traj_fitted = [fname_traj_fitted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
+            X_fitted = [np.load(self.fnames_traj_fitted[k]) for k in range (self.my_n_traj)]
+            
+            self.X_fitted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
 
-        for k in range (self.my_n_traj): self.X_fitted[k,] = X_fitted[k]
+            for k in range (self.my_n_traj): self.X_fitted[k,] = X_fitted[k]
         
     def load_weights(self,kwargs):
 
@@ -133,6 +135,7 @@ class mpi_pool:
         
         fname_X_template = kwargs.get('fname_X_template',None)
         self.X_template = np.load(fname_X_template)
+        self.N = self.X_template.shape[0]
         
         fname_X_template_dx = kwargs.get('fname_X_template_dx',None)
         self.X_template_dx = np.load(fname_X_template_dx)

@@ -62,7 +62,7 @@ pip3 list | grep -E "pymanopt|autograd|torch|jax|tensorflow"
 
 We are using curriculum learning method to solve the non-convex optimization problem of SR-NiTROM. To this end, we first extract POD-Galerkin bases and
 coefficients as the initial guess over the entire timespan of training trajectories. Afterwards, we train iteratively starting from short trajectory slices to longer ones 
-to help maintain a robust training process. 
+to help maintain a robust training process (for our example, here we first train on t = 0.025, then 0.05, 0.1, 0.2, 0.5, 1, 2, 4). 
 
 To adjust the timespan of trajectory for training SR-NiTROM coefficients from its initial guess, navigate to /Examples/kse/train_SR_NiTROM.py and modify the variables `timespan_percentage_POD = 1.00` and `timespan_percentage_NiTROM_training = 0.025`.
 

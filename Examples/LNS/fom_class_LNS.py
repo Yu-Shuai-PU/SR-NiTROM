@@ -140,7 +140,7 @@ class LNS:
         D4 = D4[1:N, 1:N]
         return D2, D4
     
-    def FFT_1D_input_3D(self, u, axis):
+    def FFT_1D(self, u, axis):
         """Compute the 1D FFT along a specified axis of the 3D field u.
         
         Input:
@@ -156,7 +156,7 @@ class LNS:
         u_tilde[tuple(slices)] *= (N % 2) # if the number of modes is even, set the Nyquist mode to zero
         return u_tilde
     
-    def IFFT_1D_input_3D(self, u_tilde, axis):
+    def IFFT_1D(self, u_tilde, axis):
         """Compute the 1D inverse FFT along a specified axis of the 3D field u_tilde.
         
         Input:
@@ -169,29 +169,7 @@ class LNS:
         u = np.fft.ifft(np.fft.ifftshift(u_tilde, axes=(axis,)), axis=axis).real * N
         return u
     
-    def FFT_1D_input_vectorized_3D(self, u_vec, axis):
-        """Compute the 1D FFT along a specified axis of the vectorized 3D field u_vec.
-        
-        Input:
-            u_vec -- spatial function with shape (nx * ny * nz, )
-            axis -- axis along which to compute the FFT (0 for x, 2 for z)
-        Output:
-            u_vec_tilde -- frequency space representation with shape (nx * ny * nz, )
-        """
-        return self.FFT_1D_input_3D(u_vec.reshape(self.nx, self.ny, self.nz), axis).ravel()
-    
-    def IFFT_1D_input_vectorized_3D(self, u_vec_tilde, axis):
-        """Compute the 1D inverse FFT along a specified axis of the vectorized 3D field u_vec_tilde.
-        
-        Input:
-            u_vec_tilde -- frequency space representation with shape (nx * ny * nz, )
-            axis -- axis along which to compute the inverse FFT (0 for x, 2 for z)
-        Output:
-            u_vec -- spatial function with shape (nx * ny * nz, )
-        """
-        return self.IFFT_1D_input_3D(u_vec_tilde.reshape(self.nx, self.ny, self.nz), axis).ravel()
-    
-    def FFT_2D_input_3D(self, u):
+    def FFT_2D(self, u):
         """Compute the 2D FFT along x and z axes of the 3D field u.
         (Direct implementation using numpy.fft.fft2)
         
@@ -207,7 +185,7 @@ class LNS:
         u_breve[:, :, 0] *= (Nz % 2)
         return u_breve
     
-    def IFFT_2D_input_3D(self, u_breve):
+    def IFFT_2D(self, u_breve):
         """Compute the 2D inverse FFT along x and z axes of the 3D field u_breve.
         (Direct implementation using numpy.fft.ifft2)
         
@@ -220,98 +198,42 @@ class LNS:
         Nz = u_breve.shape[2]
         return np.fft.ifft2(np.fft.ifftshift(u_breve, axes=(0, 2)), axes=(0, 2)).real * (Nx * Nz)
     
-    def FFT_2D_input_vectorized_3D(self, u_vec):
-        """Compute the 2D FFT along x and z axes of the vectorized 3D field u_vec.
-        
-        Input:
-            u_vec -- spatial function with shape (nx * ny * nz, )
-            
-        Output:
-            u_vec_breve -- frequency space representation with shape (nx * ny * nz, )
-        """
-        return self.FFT_2D_input_3D(u_vec.reshape(self.nx, self.ny, self.nz)).ravel()
-    
-    def IFFT_2D_input_vectorized_3D(self, u_vec_breve):
-        """Compute the 2D inverse FFT along x and z axes of the vectorized 3D field u_vec_breve.
-        
-        Input:
-            u_vec_breve -- frequency space representation with shape (nx * ny * nz, )
-        Output:
-            u_vec -- spatial function with shape (nx * ny * nz, )
-        """
-        return self.IFFT_2D_input_3D(u_vec_breve.reshape(self.nx, self.ny, self.nz)).ravel()
-    
-    def diff_x_input_3D(self, u, order):
+    def diff_x(self, u, order):
         """Compute the spatial derivative of the 3D field u of order 'order' in x direction.
         """
         
-        u_tilde = self.FFT_1D_input_3D(u, axis=0)
+        u_tilde = self.FFT_1D(u, axis=0)
         factor = (self._deriv_factor_x ** order).reshape(-1, 1, 1)
-        return self.IFFT_1D_input_3D(u_tilde * factor, axis=0)
+        return self.IFFT_1D(u_tilde * factor, axis=0)
     
-    def diff_x_input_vectorized_3D(self, u_vec, order):
-        """Compute the spatial derivative of the vectorized 3D field u_vec of order 'order' in x direction.
-        """
-        
-        u = u_vec.reshape(self.nx, self.ny, self.nz)
-        return self.diff_x_input_3D(u, order).ravel()
-    
-    def diff_z_input_3D(self, u, order):
+    def diff_z(self, u, order):
         """Compute the spatial derivative of the 3D field u(x, y, z) of order 'order' in z direction.
         """
         
-        u_tilde = self.FFT_1D_input_3D(u, axis=2)
+        u_tilde = self.FFT_1D(u, axis=2)
         factor = (self._deriv_factor_z ** order).reshape(1, 1, -1)
-        return self.IFFT_1D_input_3D(u_tilde * factor, axis=2)
+        return self.IFFT_1D(u_tilde * factor, axis=2)
     
-    def diff_z_input_vectorized_3D(self, u_vec, order):
-        """Compute the spatial derivative of the vectorized 3D field u_vec of order 'order' in z direction.
-        """
-        
-        u = u_vec.reshape(self.nx, self.ny, self.nz)
-        return self.diff_z_input_3D(u, order).ravel()
-    
-    def diff_1_y_input_3D(self, u):
+    def diff_1_y(self, u):
         """Compute the first spatial derivative of the 3D field u(x, y, z) in y direction using Chebyshev differentiation matrix.
         """
         
         u_dy = np.einsum('mj, kjl -> kml', self.D1, u)
         return u_dy
     
-    def diff_1_y_input_vectorized_3D(self, u_vec):
-        """Compute the first spatial derivative of the vectorized 3D field u_vec in y direction using Chebyshev differentiation matrix.
-        """
-        
-        u = u_vec.reshape(self.nx, self.ny, self.nz)
-        return self.diff_1_y_input_3D(u).ravel()
-    
-    def diff_2_y_input_3D(self, u):
+    def diff_2_y(self, u):
         """Compute the second spatial derivative of the 3D field u(x, y, z) in y direction using Chebyshev differentiation matrix.
         """
         
         u_dyy = np.einsum('mj, kjl -> kml', self.D2, u)
         return u_dyy
     
-    def diff_2_y_input_vectorized_3D(self, u_vec):
-        """Compute the second spatial derivative of the vectorized 3D field u_vec in y direction using Chebyshev differentiation matrix.
-        """
-        
-        u = u_vec.reshape(self.nx, self.ny, self.nz)
-        return self.diff_2_y_input_3D(u).ravel()
-    
-    def diff_4_y_input_3D(self, u):
+    def diff_4_y(self, u):
         """Compute the fourth spatial derivative of the 3D field u(x, y, z) in y direction using Chebyshev differentiation matrix.
         """
         
         u_dyyy = np.einsum('mj, kjl -> kml', self.D4, u)
         return u_dyyy
-    
-    def diff_4_y_input_vectorized_3D(self, u_vec):
-        """Compute the fourth spatial derivative of the vectorized 3D field u_vec in y direction using Chebyshev differentiation matrix.
-        """
-        
-        u = u_vec.reshape(self.nx, self.ny, self.nz)
-        return self.diff_4_y_input_3D(u).ravel()
     
     def inner_product_3D(self, v1, eta1, v2, eta2):
         
@@ -330,10 +252,10 @@ class LNS:
         
         """
         
-        v1_breve = self.FFT_2D_input_3D(v1)
-        eta1_breve = self.FFT_2D_input_3D(eta1)
-        v2_breve = self.FFT_2D_input_3D(v2)
-        eta2_breve = self.FFT_2D_input_3D(eta2)
+        v1_breve = self.FFT_2D(v1)
+        eta1_breve = self.FFT_2D(eta1)
+        v2_breve = self.FFT_2D(v2)
+        eta2_breve = self.FFT_2D(eta2)
         
         dv1_dy_breve = np.einsum('mj, kjl -> kml', self.D1, v1_breve)
         dv2_dy_breve = np.einsum('mj, kjl -> kml', self.D1, v2_breve)
@@ -350,75 +272,65 @@ class LNS:
 
         return np.real(final_result)
     
-    def inner_product_vectorized_3D(self, v1_vec, eta1_vec, v2_vec, eta2_vec):
-        
-        """Compute the inner product of two vectorized system's states (v1_vec, eta1_vec) and (v2_vec, eta2_vec).
-        
-        Input: 
-        v1_vec -- vectorized spatial function with shape (nx * ny * nz,)
-        eta1_vec -- vectorized spatial function with shape (nx * ny * nz,)
-        v2_vec -- vectorized spatial function with shape (nx * ny * nz,)
-        eta2_vec -- vectorized spatial function with shape (nx * ny * nz,)
-        """
-        
-        v1 = v1_vec.reshape((self.nx, self.ny, self.nz))
-        eta1 = eta1_vec.reshape((self.nx, self.ny, self.nz))
-        v2 = v2_vec.reshape((self.nx, self.ny, self.nz))
-        eta2 = eta2_vec.reshape((self.nx, self.ny, self.nz))
-        
-        return self.inner_product_3D(v1, eta1, v2, eta2)
-    
     def shift_x_input_3D(self, u, c):
         """Shift the 3D field u(x, y, z) by amount c in x direction to get u(x - c, y, z).
         """
         
-        u_tilde = self.FFT_1D_input_3D(u, axis=0)
+        u_tilde = self.FFT_1D(u, axis=0)
         u_tilde_shifted = u_tilde * np.exp(2j * np.pi * self.mode_idx_x.reshape(-1, 1, 1) * (-c) / self.Lx)
-        return self.IFFT_1D_input_3D(u_tilde_shifted, axis=0)
-    
-    def shift_x_input_vectorized_3D(self, u_vec, c):
-        """Shift the vectorized 3D field u_vec by amount c in x direction to get u(x - c, y, z).
-        """
-        
-        u = u_vec.reshape(self.nx, self.ny, self.nz)
-        u_shifted = self.shift_x_input_3D(u, c)
-        return u_shifted.ravel()
+        return self.IFFT_1D(u_tilde_shifted, axis=0)
 
     def shift_z_input_3D(self, u, c):
         """Shift the 3D field u(x, y, z) by amount c in z direction to get u(x, y, z - c).
         """
         
-        u_tilde = self.FFT_1D_input_3D(u, axis=2)
+        u_tilde = self.FFT_1D(u, axis=2)
         u_tilde_shifted = u_tilde * np.exp(2j * np.pi * self.mode_idx_z.reshape(1, 1, -1) * (-c) / self.Lz)
-        return self.IFFT_1D_input_3D(u_tilde_shifted, axis=2)
+        return self.IFFT_1D(u_tilde_shifted, axis=2)
     
-    def shift_z_input_vectorized_3D(self, u_vec, c):
-        """Shift the vectorized 3D field u_vec by amount c in z direction to get u(x, y, z - c).
-        """
-        
-        u = u_vec.reshape(self.nx, self.ny, self.nz)
-        u_shifted = self.shift_z_input_3D(u, c)
-        return u_shifted.ravel()
-    
-    def template_fitting(self, q_vec, q_template_vec):
+    def template_fitting(self, q_vec):
         """Perform template fitting to remove the translational symmetry in x and z directions.
         
         Input:
-            q_vec -- vectorized spatial function with shape (2 * nx * ny * nz, )
+            q_vec -- vectorized spatial function with shape (2 * nx * ny * nz, n_snapshots)
             q_template_vec -- vectorized spatial function with shape (2 * nx * ny * nz, )
             
+        Algorithm:
+            We use the projection onto the first Fourier slice to determine the shifting amount
+            
+        Output:
+            q_vec_fitted -- vectorized spatial function with shape (2 * nx * ny * nz, n_snapshots)
+            shifting_amounts -- array of shape (n_snapshots), where the first column is the shifting amount in x direction (temporarily, we only consider x direction shifting)
         """
-    
-    """
-    Below is the formal form of the LNS class, where we seek to represent the dynamics as
-    
-    dq/dt = Lq + f_ext.
-    where 
-    q(idx_x * (Ny * Nz) + idx_y * Nz + idx_z)                = v(idx_x, idx_y, idx_z) for 0 <= idx_x <= Nx - 1, 0 <= idx_y <= Ny - 1, 0 <= idx_z <= Nz - 1
-    q(Nx * Ny * Nz + idx_x * (Ny * Nz) + idx_y * Nz + idx_z) = eta(idx_x, idx_y, idx_z) for 0 <= idx_x <= Nx - 1, 0 <= idx_y <= Ny - 1, 0 <= idx_z <= Nz - 1      
-    and L is the linear operator representing the linearized Navier-Stokes equations around the base flow
-    """
-    
+        
+        N_snapshots = q_vec.shape[1]
+        v_snapshots = q_vec[0 : self.nx * self.ny * self.nz, :].reshape((self.nx, self.ny, self.nz, N_snapshots))
+        eta_snapshots = q_vec[self.nx * self.ny * self.nz : , :].reshape((self.nx, self.ny, self.nz, N_snapshots))
+        
+        shifting_amounts = np.zeros(N_snapshots)
+        v_snapshots_fitted = np.zeros_like(v_snapshots)
+        eta_snapshots_fitted = np.zeros_like(eta_snapshots)
+        
+        for idx_snapshot in range(N_snapshots):
+            v_snapshot = v_snapshots[:, :, :, idx_snapshot]
+            eta_snapshot = eta_snapshots[:, :, :, idx_snapshot]
+            
+            inner_product_q_template = self.inner_product_3D(v_snapshot, eta_snapshot,
+                                                            self.v_template, self.eta_template)
+            
+            inner_product_q_template_quarter_shifted = self.inner_product_3D(v_snapshot, eta_snapshot,
+                                                                             self.v_template_x_quarter_shifted,
+                                                                             self.eta_template_x_quarter_shifted)
+            
+            shifting_amounts[idx_snapshot] = np.angle(inner_product_q_template + 1j * inner_product_q_template_quarter_shifted) * (self.Lx / (2 * np.pi))
+            v_snapshots_fitted[:, :, :, idx_snapshot] = self.shift_x_input_3D(v_snapshot, -shifting_amounts[idx_snapshot])
+            eta_snapshots_fitted[:, :, :, idx_snapshot] = self.shift_x_input_3D(eta_snapshot, -shifting_amounts[idx_snapshot])
+            
+        q_vec_fitted = np.concatenate((v_snapshots_fitted.reshape((self.nx * self.ny * self.nz, N_snapshots)),
+                                      eta_snapshots_fitted.reshape((self.nx * self.ny * self.nz, N_snapshots))), axis=0)
+        
+        return q_vec_fitted, shifting_amounts
+   
     def assemble_fom_linear_operator(self):
         """Assemble the full linear operator L for the FOM."""
         
@@ -471,8 +383,8 @@ class LNS:
         v = q_vec[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
         eta = q_vec[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
         
-        v_breve = self.FFT_2D_input_3D(v)
-        eta_breve = self.FFT_2D_input_3D(eta)
+        v_breve = self.FFT_2D(v)
+        eta_breve = self.FFT_2D(eta)
         
         v_breve_inner = v_breve[:, 1:-1, :].transpose(0, 2, 1)   # (nx, nz, ny-2)
         eta_breve_inner = eta_breve[:, 1:-1, :].transpose(0, 2, 1) # (nx, nz, ny-2)
@@ -491,8 +403,8 @@ class LNS:
         linear_eta_breve = np.zeros_like(eta_breve)        
         linear_v_breve[:, 1:-1, :] = linear_v_breve_inner.transpose(0, 2, 1) # (nx, nz, ny-2) -> (nx, ny-2, nz)
         linear_eta_breve[:, 1:-1, :] = linear_eta_breve_inner.transpose(0, 2, 1) # (nx, nz, ny-2) -> (nx, ny-2, nz)
-        linear_v = self.IFFT_2D_input_3D(linear_v_breve)
-        linear_eta = self.IFFT_2D_input_3D(linear_eta_breve)
+        linear_v = self.IFFT_2D(linear_v_breve)
+        linear_eta = self.IFFT_2D(linear_eta_breve)
         
         return np.concatenate((linear_v.ravel(), linear_eta.ravel()))
     
@@ -530,32 +442,36 @@ class LNS:
         """Load the template function and its derivative for template fitting."""
         self.v_template_vec      = q_template_vec[0 : self.nx * self.ny * self.nz]
         self.v_template          = self.v_template_vec.reshape((self.nx, self.ny, self.nz))
+        self.v_template_x_quarter_shifted = self.shift_x_input_3D(self.v_template, self.Lx / 4)
         self.v_template_dx_vec   = q_template_dx_vec[0 : self.nx * self.ny * self.nz]
         self.v_template_dx       = self.v_template_dx_vec.reshape((self.nx, self.ny, self.nz))
         
         self.eta_template_vec    = q_template_vec[self.nx * self.ny * self.nz : ]
         self.eta_template        = self.eta_template_vec.reshape((self.nx, self.ny, self.nz))
+        self.eta_template_x_quarter_shifted = self.shift_x_input_3D(self.eta_template, self.Lx / 4)
         self.eta_template_dx_vec = q_template_dx_vec[self.nx * self.ny * self.nz : ]
         self.eta_template_dx     = self.eta_template_dx_vec.reshape((self.nx, self.ny, self.nz))    
     
     def evaluate_fom_shift_speed_denom(self, q_fitted_vec):
         """Evaluate the shift speed for the FOM."""
-        v_fitted_vec = q_fitted_vec[0 : self.nx * self.ny * self.nz]
-        eta_fitted_vec = q_fitted_vec[self.nx * self.ny * self.nz : ]
-        v_fitted_dx_vec = self.diff_x_input_vectorized_3D(v_fitted_vec, order=1)
-        eta_fitted_dx_vec = self.diff_x_input_vectorized_3D(eta_fitted_vec, order=1)
-        return self.inner_product_vectorized_3D(v_fitted_dx_vec,
-                                                eta_fitted_dx_vec,
-                                                self.v_template_dx_vec,
-                                                self.eta_template_dx_vec)
+        v_fitted = q_fitted_vec[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
+        eta_fitted = q_fitted_vec[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
+        v_fitted_dx = self.diff_x(v_fitted, order=1)
+        eta_fitted_dx = self.diff_x(eta_fitted, order=1)
+        return self.inner_product_3D(v_fitted_dx,
+                                     eta_fitted_dx,
+                                     self.v_template_dx,
+                                     self.eta_template_dx)
         
     def evaluate_fom_shift_speed_numer(self, q_fitted_vec):
         """Evaluate the shift speed for the FOM."""
         dqdt_original_fitted_vec = self.evaluate_fom_rhs_unreduced(q_fitted_vec)
-        return -self.inner_product_vectorized_3D(dqdt_original_fitted_vec[: self.nx * self.ny * self.nz],
-                                                dqdt_original_fitted_vec[self.nx * self.ny * self.nz: ],
-                                                self.v_template_dx_vec,
-                                                self.eta_template_dx_vec)
+        dvdt_original_fitted = dqdt_original_fitted_vec[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
+        detadt_original_fitted = dqdt_original_fitted_vec[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
+        return -self.inner_product_3D(dvdt_original_fitted,
+                                     detadt_original_fitted,
+                                     self.v_template_dx,
+                                     self.eta_template_dx)
         
     def evaluate_fom_shift_speed(self, q_fitted_vec):
         """Evaluate the shift speed for the FOM."""
@@ -570,13 +486,13 @@ class time_step_LNS:
         self.nsteps = len(time)
         self.exp_linear_mat = fom.assemble_fom_exp_linear_operator(fom.linear_mat, self.dt)
   
-    def time_step(self, q_vec, nsave, *argv):
+    def time_step(self, q0_vec, nsave, *argv):
 
         """Time-step the KSE from initial condition q0 using CNRK3 scheme.
         See Peyret (2002) "Spectral Methods for Incompressible Viscous Flow" for details.
         
         args:
-            u: initial condition (2 * nx * ny * nz 1D array, the first nx * ny * nz entries are v, the next nx * ny * nz entries are eta)
+            q0_vec: initial condition (2 * nx * ny * nz 1D array, the first nx * ny * nz entries are v, the next nx * ny * nz entries are eta)
             nsave: save every nsave time steps (int)
             *argv: additional arguments for the forcing function (if any)
         returns:
@@ -586,18 +502,18 @@ class time_step_LNS:
         tsave = self.time[::nsave]
         q_vec_snapshots = np.zeros((2 * self.fom.nx * self.fom.ny * self.fom.nz, len(tsave)))
         
-        v = q_vec[0 : self.fom.nx * self.fom.ny * self.fom.nz].reshape((self.fom.nx, self.fom.ny, self.fom.nz))
-        eta = q_vec[self.fom.nx * self.fom.ny * self.fom.nz : ].reshape((self.fom.nx, self.fom.ny, self.fom.nz))
-        v_breve = self.fom.FFT_2D_input_3D(v)
-        eta_breve = self.fom.FFT_2D_input_3D(eta)
+        v = q0_vec[0 : self.fom.nx * self.fom.ny * self.fom.nz].reshape((self.fom.nx, self.fom.ny, self.fom.nz))
+        eta = q0_vec[self.fom.nx * self.fom.ny * self.fom.nz : ].reshape((self.fom.nx, self.fom.ny, self.fom.nz))
+        v_breve = self.fom.FFT_2D(v)
+        eta_breve = self.fom.FFT_2D(eta)
         q_breve_vec = np.concatenate((v_breve.ravel(), eta_breve.ravel()))
  
         for idx_time in range(self.nsteps):
             t_current = idx_time * self.dt
             if idx_time % nsave == 0:
                 print(f"Processing t={t_current:.3f}")
-                q_vec_snapshots[:self.fom.nx * self.fom.ny * self.fom.nz, idx_time // nsave] = self.fom.IFFT_2D_input_vectorized_3D(q_breve_vec[:self.fom.nx * self.fom.ny * self.fom.nz])
-                q_vec_snapshots[self.fom.nx * self.fom.ny * self.fom.nz:, idx_time // nsave] = self.fom.IFFT_2D_input_vectorized_3D(q_breve_vec[self.fom.nx * self.fom.ny * self.fom.nz:])
+                q_vec_snapshots[:self.fom.nx * self.fom.ny * self.fom.nz, idx_time // nsave] = self.fom.IFFT_2D(q_breve_vec[:self.fom.nx * self.fom.ny * self.fom.nz].reshape((self.fom.nx, self.fom.ny, self.fom.nz))).ravel()
+                q_vec_snapshots[self.fom.nx * self.fom.ny * self.fom.nz:, idx_time // nsave] = self.fom.IFFT_2D(q_breve_vec[self.fom.nx * self.fom.ny * self.fom.nz:].reshape((self.fom.nx, self.fom.ny, self.fom.nz))).ravel()
             q_breve_vec = self.fom.exp_linear_frequency_domain(self.exp_linear_mat, q_breve_vec)
             
         return q_vec_snapshots, tsave

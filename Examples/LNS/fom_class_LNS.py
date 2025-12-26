@@ -307,7 +307,7 @@ class LNS:
         v_snapshots = q_vec[0 : self.nx * self.ny * self.nz, :].reshape((self.nx, self.ny, self.nz, N_snapshots))
         eta_snapshots = q_vec[self.nx * self.ny * self.nz : , :].reshape((self.nx, self.ny, self.nz, N_snapshots))
         
-        shifting_amounts = np.zeros(N_snapshots)
+        shifting_amount = np.zeros(N_snapshots)
         v_snapshots_fitted = np.zeros_like(v_snapshots)
         eta_snapshots_fitted = np.zeros_like(eta_snapshots)
         
@@ -322,14 +322,16 @@ class LNS:
                                                                              self.v_template_x_quarter_shifted,
                                                                              self.eta_template_x_quarter_shifted)
             
-            shifting_amounts[idx_snapshot] = np.angle(inner_product_q_template + 1j * inner_product_q_template_quarter_shifted) * (self.Lx / (2 * np.pi))
-            v_snapshots_fitted[:, :, :, idx_snapshot] = self.shift_x_input_3D(v_snapshot, -shifting_amounts[idx_snapshot])
-            eta_snapshots_fitted[:, :, :, idx_snapshot] = self.shift_x_input_3D(eta_snapshot, -shifting_amounts[idx_snapshot])
+            shifting_amount[idx_snapshot] = np.angle(inner_product_q_template + 1j * inner_product_q_template_quarter_shifted) * (self.Lx / (2 * np.pi))
+            v_snapshots_fitted[:, :, :, idx_snapshot] = self.shift_x_input_3D(v_snapshot, -shifting_amount[idx_snapshot])
+            eta_snapshots_fitted[:, :, :, idx_snapshot] = self.shift_x_input_3D(eta_snapshot, -shifting_amount[idx_snapshot])
             
         q_vec_fitted = np.concatenate((v_snapshots_fitted.reshape((self.nx * self.ny * self.nz, N_snapshots)),
                                       eta_snapshots_fitted.reshape((self.nx * self.ny * self.nz, N_snapshots))), axis=0)
         
-        return q_vec_fitted, shifting_amounts
+        shifting_amount = np.unwrap(shifting_amount, period=self.Lx) # unwrap the shifting amount to avoid discontinuities due to periodicity
+        
+        return q_vec_fitted, shifting_amount
    
     def assemble_fom_linear_operator(self):
         """Assemble the full linear operator L for the FOM."""
@@ -452,7 +454,7 @@ class LNS:
         self.eta_template_dx_vec = q_template_dx_vec[self.nx * self.ny * self.nz : ]
         self.eta_template_dx     = self.eta_template_dx_vec.reshape((self.nx, self.ny, self.nz))    
     
-    def evaluate_fom_shift_speed_denom(self, q_fitted_vec):
+    def evaluate_fom_shifting_speed_denom(self, q_fitted_vec):
         """Evaluate the shift speed for the FOM."""
         v_fitted = q_fitted_vec[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
         eta_fitted = q_fitted_vec[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
@@ -463,19 +465,18 @@ class LNS:
                                      self.v_template_dx,
                                      self.eta_template_dx)
         
-    def evaluate_fom_shift_speed_numer(self, q_fitted_vec):
+    def evaluate_fom_shifting_speed_numer(self, dqdt_unreduced_fitted_vec):
         """Evaluate the shift speed for the FOM."""
-        dqdt_original_fitted_vec = self.evaluate_fom_rhs_unreduced(q_fitted_vec)
-        dvdt_original_fitted = dqdt_original_fitted_vec[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
-        detadt_original_fitted = dqdt_original_fitted_vec[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
+        dvdt_original_fitted = dqdt_unreduced_fitted_vec[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
+        detadt_original_fitted = dqdt_unreduced_fitted_vec[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
         return -self.inner_product_3D(dvdt_original_fitted,
                                      detadt_original_fitted,
                                      self.v_template_dx,
                                      self.eta_template_dx)
         
-    def evaluate_fom_shift_speed(self, q_fitted_vec):
+    def evaluate_fom_shifting_speed(self, q_fitted_vec, dqdt_unreduced_fitted_vec):
         """Evaluate the shift speed for the FOM."""
-        return self.evaluate_fom_shift_speed_numer(q_fitted_vec) / self.evaluate_fom_shift_speed_denom(q_fitted_vec)
+        return self.evaluate_fom_shifting_speed_numer(dqdt_unreduced_fitted_vec) / self.evaluate_fom_shifting_speed_denom(q_fitted_vec)
   
 class time_step_LNS:
     

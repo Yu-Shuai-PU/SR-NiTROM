@@ -52,15 +52,15 @@ fname_traj_template = data_path + "traj_template.npy"
 fname_traj_template_dx = data_path + "traj_template_dx.npy"
 fname_traj_init = data_path + "traj_init_%03d.npy" # for initial condition of u
 fname_traj_init_fitted = data_path + "traj_init_fitted_%03d.npy" # for initial condition of u fitted
-fname_traj = traj_path + "traj_%03d.npy" # for u
-fname_traj_fitted = traj_path + "traj_fitted_%03d.npy" # for u fitted
+fname_traj = traj_path + "traj_FOM_%03d.npy" # for u
+fname_traj_fitted = traj_path + "traj_FOM_fitted_%03d.npy" # for u fitted
 fname_weight_traj = traj_path + "weight_traj_%03d.npy"
 fname_weight_shift_amount = traj_path + "weight_shift_amount_%03d.npy"
 fname_weight_shift_speed = traj_path + "weight_shift_speed_%03d.npy"
-fname_deriv = traj_path + "deriv_%03d.npy" # for du/dt
-fname_deriv_fitted = traj_path + "deriv_fitted_%03d.npy" # for du/dt fitted
-fname_shift_amount = traj_path + "shift_amount_%03d.npy" # for shifting amount
-fname_shift_speed = traj_path + "shift_speed_%03d.npy" # for shifting speed
+fname_deriv = traj_path + "deriv_FOM_%03d.npy" # for du/dt
+fname_deriv_fitted = traj_path + "deriv_FOM_fitted_%03d.npy" # for du/dt fitted
+fname_shift_amount = traj_path + "shift_amount_FOM_%03d.npy" # for shifting amount
+fname_shift_speed = traj_path + "shift_speed_FOM_%03d.npy" # for shifting speed
 fname_time = traj_path + "time.npy"
 
 ### First, we try to set up the initial localized disturbance
@@ -91,7 +91,11 @@ nsave = 2 # sample interval
 time = dt * np.linspace(0, int(T/dt), int(T/dt) + 1, endpoint=True)
 tsave = time[::nsave]
 
+traj_template = np.load(fname_traj_template)
+traj_template_dx = np.load(fname_traj_template_dx)
+
 fom = fom_class_LNS.LNS(Lx, Ly, Lz, nx, ny, nz, y, Re, U_base, U_base_dy, U_base_dyy)
+fom.load_template(traj_template, traj_template_dx)
 time = dt * np.linspace(0, int(T/dt), int(T/dt) + 1, endpoint=True)
 tstep_kse_fom = fom_class_LNS.time_step_LNS(fom, time)
 
@@ -111,12 +115,7 @@ psi0[:, :, :, 0] = amp * (1-Y**2)**2 * ((X - Lx/2)/2) * (Z - Lz/2) ** 2 * np.exp
 for k in range (n_traj):
     v0[:, :, :, k] = fom.diff_z(psi0[:, :, :, k], order = 1)
     eta0[:, :, :, k] = fom.diff_x(fom.diff_1_y(psi0[:, :, :, k]), order = 1)
-    
-# Load the trajectory template
-traj_template = np.load(fname_traj_template)
-traj_template_dx = np.load(fname_traj_template_dx)
-fom.load_template(traj_template, traj_template_dx)
-  
+
 # endregion
 
 # region 2: Simulations
@@ -133,7 +132,28 @@ for k in range (pool.my_n_traj):
     
     traj, tsave = tstep_kse_fom.time_step(traj_init, nsave) # traj is in the physical domain and is of the shape (2 * nx * ny * nz, nsave_samples)
     traj_fitted, shifting_amount = fom.template_fitting(traj)
-    
+    traj_init_fitted = traj_fitted[:, 0]
+    deriv = np.zeros_like(traj)
+    deriv_fitted = np.zeros_like(traj_fitted)
+    shifting_speed = np.zeros(len(tsave))
+    disturbance_energy = np.zeros(len(tsave))
+    for i in range (traj.shape[1]):
+        deriv[:, i] = fom.evaluate_fom_rhs_unreduced(traj[:, i])
+        deriv_v_3D = deriv[:nx * ny * nz, i].reshape((nx, ny, nz))
+        deriv_eta_3D = deriv[nx * ny * nz:, i].reshape((nx, ny, nz))
+        deriv_v_3D_fitted = fom.shift_x_input_3D(deriv_v_3D, -shifting_amount[i])
+        deriv_eta_3D_fitted = fom.shift_x_input_3D(deriv_eta_3D, -shifting_amount[i])
+        deriv_fitted[:, i] = np.concatenate((deriv_v_3D_fitted.ravel(), deriv_eta_3D_fitted.ravel()))
+        shifting_speed[i] = fom.evaluate_fom_shifting_speed(traj_fitted[:, i], deriv_fitted[:, i])
+        disturbance_energy[i] = fom.inner_product_3D(traj[:, i][0 : nx * ny * nz].reshape((nx, ny, nz)),
+                                                     traj[:, i][nx * ny * nz : ].reshape((nx, ny, nz)),
+                                                     traj[:, i][0 : nx * ny * nz].reshape((nx, ny, nz)),
+                                                     traj[:, i][nx * ny * nz : ].reshape((nx, ny, nz)))
+        
+    weight_traj = 1.0/np.mean(disturbance_energy)
+    weight_shifting_amount = 1.0/Lx**2
+    weight_shifting_speed = 1.0/np.mean((shifting_speed - np.mean(shifting_speed))**2)
+        
     plt.plot(tsave, shifting_amount)
     plt.xlabel("Time")
     plt.ylabel("Shifting amount c(t)")
@@ -141,14 +161,34 @@ for k in range (pool.my_n_traj):
     plt.tight_layout()
     plt.show()
     
-    np.save(fname_traj_init%traj_idx,traj_init)
+    plt.plot(tsave, shifting_speed)
+    plt.xlabel("Time")
+    plt.ylabel("Shifting speed c'(t)")
+    plt.title("Shifting speed over time")
+    plt.tight_layout()
+    plt.show()
+        
     np.save(fname_time, tsave)
-    np.save(fname_traj % (traj_idx), traj)
-   
+    np.save(fname_traj_init%traj_idx,traj_init)
+    np.save(fname_traj_init_fitted%traj_idx,traj_init_fitted)
+    np.save(fname_traj%traj_idx, traj)
+    np.save(fname_traj_fitted%traj_idx, traj_fitted)
+    np.save(fname_deriv%traj_idx, deriv)
+    np.save(fname_deriv_fitted%traj_idx, deriv_fitted)
+    np.save(fname_shift_amount%traj_idx, shifting_amount)
+    np.save(fname_shift_speed%traj_idx, shifting_speed)
+    np.save(fname_weight_traj%traj_idx, weight_traj)
+    np.save(fname_weight_shift_amount%traj_idx, weight_shifting_amount)
+    np.save(fname_weight_shift_speed%traj_idx, weight_shifting_speed)
+    
     traj_v = traj[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
     traj_eta = traj[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
     traj_v_fitted = traj_fitted[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
     traj_eta_fitted = traj_fitted[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+    deriv_v = deriv[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
+    deriv_eta = deriv[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+    deriv_v_fitted = deriv_fitted[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
+    deriv_eta_fitted = deriv_fitted[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
     
     t_check_list = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 190.0, 200.0]
     y_check = -0.56
@@ -157,6 +197,10 @@ for k in range (pool.my_n_traj):
     eta_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
     v_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
     eta_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+    deriv_v_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+    deriv_eta_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+    deriv_v_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+    deriv_eta_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
 
     for t_check in t_check_list:
 
@@ -165,16 +209,28 @@ for k in range (pool.my_n_traj):
         eta_slice = traj_eta[:, :, :, idx_sample]
         v_fitted_slice = traj_v_fitted[:, :, :, idx_sample]
         eta_fitted_slice = traj_eta_fitted[:, :, :, idx_sample]
+        deriv_v_slice = deriv_v[:, :, :, idx_sample]
+        deriv_eta_slice = deriv_eta[:, :, :, idx_sample]
+        deriv_v_fitted_slice = deriv_v_fitted[:, :, :, idx_sample]
+        deriv_eta_fitted_slice = deriv_eta_fitted[:, :, :, idx_sample]
         idx_y_check = np.argmin(np.abs(y - y_check))
         v_slice_ycheck = v_slice[:, idx_y_check, :]
         v_fitted_slice_ycheck = v_fitted_slice[:, idx_y_check, :]
         eta_slice_ycheck = eta_slice[:, idx_y_check, :]
         eta_fitted_slice_ycheck = eta_fitted_slice[:, idx_y_check, :]
+        deriv_v_slice_ycheck = deriv_v_slice[:, idx_y_check, :]
+        deriv_v_fitted_slice_ycheck = deriv_v_fitted_slice[:, idx_y_check, :]
+        deriv_eta_slice_ycheck = deriv_eta_slice[:, idx_y_check, :]
+        deriv_eta_fitted_slice_ycheck = deriv_eta_fitted_slice[:, idx_y_check, :]
         
         v_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = v_fitted_slice_ycheck[:, nz//2]
         eta_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = eta_fitted_slice_ycheck[:, nz//2]
         v_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = v_slice_ycheck[:, nz//2]
         eta_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = eta_slice_ycheck[:, nz//2]
+        deriv_v_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_v_slice_ycheck[:, nz//2]
+        deriv_eta_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_eta_slice_ycheck[:, nz//2]
+        deriv_v_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_v_fitted_slice_ycheck[:, nz//2]
+        deriv_eta_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_eta_fitted_slice_ycheck[:, nz//2]  
 
         v_min = np.min(v_slice_ycheck)
         v_max = np.max(v_slice_ycheck)
@@ -254,6 +310,26 @@ for k in range (pool.my_n_traj):
     plt.xlabel(r"$x$")
     plt.ylabel(r"Normal vorticity at y={}".format(y_check))
     plt.title("Normal vorticity at y={} over time".format(y_check))
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+    
+    plt.figure(figsize=(10,6))
+    for i in range (len(t_check_list)):
+        plt.plot(x, deriv_eta_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
+    plt.xlabel(r"$x$")
+    plt.ylabel(r"RHS of the normal vorticity at y={}".format(y_check))
+    plt.title("RHS of the normal vorticity at y={} over time".format(y_check))
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+    
+    plt.figure(figsize=(10,6))
+    for i in range (len(t_check_list)):
+        plt.plot(x, deriv_eta_fitted_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
+    plt.xlabel(r"$x$")
+    plt.ylabel(r"Fitted RHS of the normal vorticity at y={}".format(y_check))
+    plt.title("Fitted RHS of the normal vorticity at y={} over time".format(y_check))
     plt.legend()
     plt.tight_layout()
     plt.show()

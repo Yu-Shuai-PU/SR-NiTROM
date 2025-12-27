@@ -50,6 +50,7 @@ os.makedirs(fig_path, exist_ok=True)
 #%% # Generate and save trajectory
 fname_traj_template = data_path + "traj_template.npy"
 fname_traj_template_dx = data_path + "traj_template_dx.npy"
+fname_traj_template_dxx = data_path + "traj_template_dxx.npy"
 fname_traj_init = data_path + "traj_init_%03d.npy" # for initial condition of u
 fname_traj_init_fitted = data_path + "traj_init_fitted_%03d.npy" # for initial condition of u fitted
 fname_traj = traj_path + "traj_%03d.npy" # for u
@@ -227,9 +228,12 @@ plt.show()
 
 traj_template = np.cos(2 * np.pi * x[:, np.newaxis, np.newaxis] / Lx) * f_opt[np.newaxis, :, np.newaxis] * np.ones((1, 1, nz))
 traj_template_dx = fom.diff_x(traj_template, order = 1)
+traj_template_dxx = fom.diff_x(traj_template, order = 2)
 traj_template = traj_template.ravel()
 traj_template_dx = traj_template_dx.ravel()
+traj_template_dxx = traj_template_dxx.ravel()
 np.save(fname_traj_template, traj_template)
 np.save(fname_traj_template_dx, traj_template_dx)
+np.save(fname_traj_template_dxx, traj_template_dxx)
 
 # endregion

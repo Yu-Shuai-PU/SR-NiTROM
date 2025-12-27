@@ -16,6 +16,9 @@ import classes
 import fom_class_LNS
 from fom_class_LNS import Chebyshev_diff_mat as diff_y_mat
 from fom_class_LNS import Chebyshev_diff_FFT as diff_y
+import nitrom_functions 
+import opinf_functions as opinf_fun
+import troop_functions
 
 """
 Generate the snapshots of 3D linearized NS equations for channel flow
@@ -50,17 +53,18 @@ os.makedirs(fig_path, exist_ok=True)
 #%% # Generate and save trajectory
 fname_traj_template = data_path + "traj_template.npy"
 fname_traj_template_dx = data_path + "traj_template_dx.npy"
+fname_traj_template_dxx = data_path + "traj_template_dxx.npy"
 fname_traj_init = data_path + "traj_init_%03d.npy" # for initial condition of u
 fname_traj_init_fitted = data_path + "traj_init_fitted_%03d.npy" # for initial condition of u fitted
-fname_traj = traj_path + "traj_FOM_%03d.npy" # for u
-fname_traj_fitted = traj_path + "traj_FOM_fitted_%03d.npy" # for u fitted
+fname_traj = traj_path + "traj_%03d.npy" # for u
+fname_traj_fitted = traj_path + "traj_fitted_%03d.npy" # for u fitted
 fname_weight_traj = traj_path + "weight_traj_%03d.npy"
 fname_weight_shift_amount = traj_path + "weight_shift_amount_%03d.npy"
 fname_weight_shift_speed = traj_path + "weight_shift_speed_%03d.npy"
-fname_deriv = traj_path + "deriv_FOM_%03d.npy" # for du/dt
-fname_deriv_fitted = traj_path + "deriv_FOM_fitted_%03d.npy" # for du/dt fitted
-fname_shift_amount = traj_path + "shift_amount_FOM_%03d.npy" # for shifting amount
-fname_shift_speed = traj_path + "shift_speed_FOM_%03d.npy" # for shifting speed
+fname_deriv = traj_path + "deriv_%03d.npy" # for du/dt
+fname_deriv_fitted = traj_path + "deriv_fitted_%03d.npy" # for du/dt fitted
+fname_shift_amount = traj_path + "shift_amount_%03d.npy" # for shifting amount
+fname_shift_speed = traj_path + "shift_speed_%03d.npy" # for shifting speed
 fname_time = traj_path + "time.npy"
 
 ### First, we try to set up the initial localized disturbance
@@ -125,215 +129,254 @@ pool = classes.mpi_pool(*pool_inputs)
 
 # Before doing any data generation, we first run on the benchmark training trajectory to get the trajectory template
 
-for k in range (pool.my_n_traj):
-    traj_idx = k + pool.disps[pool.rank]
-    print("Running simulation %d/%d"%(traj_idx,n_traj - 1))
-    traj_init = np.concatenate((v0[:, :, :, traj_idx].ravel(), eta0[:, :, :, traj_idx].ravel()))
+# for k in range (pool.my_n_traj):
+#     traj_idx = k + pool.disps[pool.rank]
+#     print("Running simulation %d/%d"%(traj_idx,n_traj - 1))
+#     traj_init = np.concatenate((v0[:, :, :, traj_idx].ravel(), eta0[:, :, :, traj_idx].ravel()))
     
-    traj, tsave = tstep_kse_fom.time_step(traj_init, nsave) # traj is in the physical domain and is of the shape (2 * nx * ny * nz, nsave_samples)
-    traj_fitted, shifting_amount = fom.template_fitting(traj)
-    traj_init_fitted = traj_fitted[:, 0]
-    deriv = np.zeros_like(traj)
-    deriv_fitted = np.zeros_like(traj_fitted)
-    shifting_speed = np.zeros(len(tsave))
-    disturbance_energy = np.zeros(len(tsave))
-    for i in range (traj.shape[1]):
-        deriv[:, i] = fom.evaluate_fom_rhs_unreduced(traj[:, i])
-        deriv_v_3D = deriv[:nx * ny * nz, i].reshape((nx, ny, nz))
-        deriv_eta_3D = deriv[nx * ny * nz:, i].reshape((nx, ny, nz))
-        deriv_v_3D_fitted = fom.shift_x_input_3D(deriv_v_3D, -shifting_amount[i])
-        deriv_eta_3D_fitted = fom.shift_x_input_3D(deriv_eta_3D, -shifting_amount[i])
-        deriv_fitted[:, i] = np.concatenate((deriv_v_3D_fitted.ravel(), deriv_eta_3D_fitted.ravel()))
-        shifting_speed[i] = fom.evaluate_fom_shifting_speed(traj_fitted[:, i], deriv_fitted[:, i])
-        disturbance_energy[i] = fom.inner_product_3D(traj[:, i][0 : nx * ny * nz].reshape((nx, ny, nz)),
-                                                     traj[:, i][nx * ny * nz : ].reshape((nx, ny, nz)),
-                                                     traj[:, i][0 : nx * ny * nz].reshape((nx, ny, nz)),
-                                                     traj[:, i][nx * ny * nz : ].reshape((nx, ny, nz)))
+#     traj, tsave = tstep_kse_fom.time_step(traj_init, nsave) # traj is in the physical domain and is of the shape (2 * nx * ny * nz, nsave_samples)
+#     traj_fitted, shifting_amount = fom.template_fitting(traj)
+#     traj_init_fitted = traj_fitted[:, 0]
+#     deriv = np.zeros_like(traj)
+#     deriv_fitted = np.zeros_like(traj_fitted)
+#     shifting_speed = np.zeros(len(tsave))
+#     disturbance_energy = np.zeros(len(tsave))
+#     for i in range (traj.shape[1]):
+#         deriv[:, i] = fom.evaluate_fom_rhs_unreduced(traj[:, i])
+#         deriv_v_3D = deriv[:nx * ny * nz, i].reshape((nx, ny, nz))
+#         deriv_eta_3D = deriv[nx * ny * nz:, i].reshape((nx, ny, nz))
+#         deriv_v_3D_fitted = fom.shift_x_input_3D(deriv_v_3D, -shifting_amount[i])
+#         deriv_eta_3D_fitted = fom.shift_x_input_3D(deriv_eta_3D, -shifting_amount[i])
+#         deriv_fitted[:, i] = np.concatenate((deriv_v_3D_fitted.ravel(), deriv_eta_3D_fitted.ravel()))
+#         shifting_speed[i] = fom.evaluate_fom_shifting_speed(traj_fitted[:, i], deriv_fitted[:, i])
+#         disturbance_energy[i] = fom.inner_product_3D(traj[:, i][0 : nx * ny * nz].reshape((nx, ny, nz)),
+#                                                      traj[:, i][nx * ny * nz : ].reshape((nx, ny, nz)),
+#                                                      traj[:, i][0 : nx * ny * nz].reshape((nx, ny, nz)),
+#                                                      traj[:, i][nx * ny * nz : ].reshape((nx, ny, nz)))
         
-    weight_traj = 1.0/np.mean(disturbance_energy)
-    weight_shifting_amount = 1.0/Lx**2
-    weight_shifting_speed = 1.0/np.mean((shifting_speed - np.mean(shifting_speed))**2)
+#     weight_traj = 1.0/np.mean(disturbance_energy)
+#     weight_shifting_amount = 1.0/Lx**2
+#     weight_shifting_speed = 1.0/np.mean((shifting_speed - np.mean(shifting_speed))**2)
         
-    plt.plot(tsave, shifting_amount)
-    plt.xlabel("Time")
-    plt.ylabel("Shifting amount c(t)")
-    plt.title("Shifting amount over time")
-    plt.tight_layout()
-    plt.show()
+#     plt.plot(tsave, shifting_amount)
+#     plt.xlabel("Time")
+#     plt.ylabel("Shifting amount c(t)")
+#     plt.title("Shifting amount over time")
+#     plt.tight_layout()
+#     plt.show()
     
-    plt.plot(tsave, shifting_speed)
-    plt.xlabel("Time")
-    plt.ylabel("Shifting speed c'(t)")
-    plt.title("Shifting speed over time")
-    plt.tight_layout()
-    plt.show()
+#     plt.plot(tsave, shifting_speed)
+#     plt.xlabel("Time")
+#     plt.ylabel("Shifting speed c'(t)")
+#     plt.title("Shifting speed over time")
+#     plt.tight_layout()
+#     plt.show()
         
-    np.save(fname_time, tsave)
-    np.save(fname_traj_init%traj_idx,traj_init)
-    np.save(fname_traj_init_fitted%traj_idx,traj_init_fitted)
-    np.save(fname_traj%traj_idx, traj)
-    np.save(fname_traj_fitted%traj_idx, traj_fitted)
-    np.save(fname_deriv%traj_idx, deriv)
-    np.save(fname_deriv_fitted%traj_idx, deriv_fitted)
-    np.save(fname_shift_amount%traj_idx, shifting_amount)
-    np.save(fname_shift_speed%traj_idx, shifting_speed)
-    np.save(fname_weight_traj%traj_idx, weight_traj)
-    np.save(fname_weight_shift_amount%traj_idx, weight_shifting_amount)
-    np.save(fname_weight_shift_speed%traj_idx, weight_shifting_speed)
+#     np.save(fname_time, tsave)
+#     np.save(fname_traj_init%traj_idx,traj_init)
+#     np.save(fname_traj_init_fitted%traj_idx,traj_init_fitted)
+#     np.save(fname_traj%traj_idx, traj)
+#     np.save(fname_traj_fitted%traj_idx, traj_fitted)
+#     np.save(fname_deriv%traj_idx, deriv)
+#     np.save(fname_deriv_fitted%traj_idx, deriv_fitted)
+#     np.save(fname_shift_amount%traj_idx, shifting_amount)
+#     np.save(fname_shift_speed%traj_idx, shifting_speed)
+#     np.save(fname_weight_traj%traj_idx, weight_traj)
+#     np.save(fname_weight_shift_amount%traj_idx, weight_shifting_amount)
+#     np.save(fname_weight_shift_speed%traj_idx, weight_shifting_speed)
     
-    traj_v = traj[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-    traj_eta = traj[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
-    traj_v_fitted = traj_fitted[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-    traj_eta_fitted = traj_fitted[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
-    deriv_v = deriv[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-    deriv_eta = deriv[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
-    deriv_v_fitted = deriv_fitted[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-    deriv_eta_fitted = deriv_fitted[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+#     traj_v = traj[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
+#     traj_eta = traj[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+#     traj_v_fitted = traj_fitted[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
+#     traj_eta_fitted = traj_fitted[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+#     deriv_v = deriv[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
+#     deriv_eta = deriv[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+#     deriv_v_fitted = deriv_fitted[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
+#     deriv_eta_fitted = deriv_fitted[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
     
-    t_check_list = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 190.0, 200.0]
-    y_check = -0.56
+#     t_check_list = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 190.0, 200.0]
+#     y_check = -0.56
     
-    v_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-    eta_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-    v_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-    eta_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-    deriv_v_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-    deriv_eta_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-    deriv_v_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-    deriv_eta_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     v_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     eta_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     v_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     eta_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     deriv_v_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     deriv_eta_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     deriv_v_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     deriv_eta_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
 
-    for t_check in t_check_list:
+#     for t_check in t_check_list:
 
-        idx_sample = int(t_check / (dt * nsave))
-        v_slice = traj_v[:, :, :, idx_sample]
-        eta_slice = traj_eta[:, :, :, idx_sample]
-        v_fitted_slice = traj_v_fitted[:, :, :, idx_sample]
-        eta_fitted_slice = traj_eta_fitted[:, :, :, idx_sample]
-        deriv_v_slice = deriv_v[:, :, :, idx_sample]
-        deriv_eta_slice = deriv_eta[:, :, :, idx_sample]
-        deriv_v_fitted_slice = deriv_v_fitted[:, :, :, idx_sample]
-        deriv_eta_fitted_slice = deriv_eta_fitted[:, :, :, idx_sample]
-        idx_y_check = np.argmin(np.abs(y - y_check))
-        v_slice_ycheck = v_slice[:, idx_y_check, :]
-        v_fitted_slice_ycheck = v_fitted_slice[:, idx_y_check, :]
-        eta_slice_ycheck = eta_slice[:, idx_y_check, :]
-        eta_fitted_slice_ycheck = eta_fitted_slice[:, idx_y_check, :]
-        deriv_v_slice_ycheck = deriv_v_slice[:, idx_y_check, :]
-        deriv_v_fitted_slice_ycheck = deriv_v_fitted_slice[:, idx_y_check, :]
-        deriv_eta_slice_ycheck = deriv_eta_slice[:, idx_y_check, :]
-        deriv_eta_fitted_slice_ycheck = deriv_eta_fitted_slice[:, idx_y_check, :]
+#         idx_sample = int(t_check / (dt * nsave))
+#         v_slice = traj_v[:, :, :, idx_sample]
+#         eta_slice = traj_eta[:, :, :, idx_sample]
+#         v_fitted_slice = traj_v_fitted[:, :, :, idx_sample]
+#         eta_fitted_slice = traj_eta_fitted[:, :, :, idx_sample]
+#         deriv_v_slice = deriv_v[:, :, :, idx_sample]
+#         deriv_eta_slice = deriv_eta[:, :, :, idx_sample]
+#         deriv_v_fitted_slice = deriv_v_fitted[:, :, :, idx_sample]
+#         deriv_eta_fitted_slice = deriv_eta_fitted[:, :, :, idx_sample]
+#         idx_y_check = np.argmin(np.abs(y - y_check))
+#         v_slice_ycheck = v_slice[:, idx_y_check, :]
+#         v_fitted_slice_ycheck = v_fitted_slice[:, idx_y_check, :]
+#         eta_slice_ycheck = eta_slice[:, idx_y_check, :]
+#         eta_fitted_slice_ycheck = eta_fitted_slice[:, idx_y_check, :]
+#         deriv_v_slice_ycheck = deriv_v_slice[:, idx_y_check, :]
+#         deriv_v_fitted_slice_ycheck = deriv_v_fitted_slice[:, idx_y_check, :]
+#         deriv_eta_slice_ycheck = deriv_eta_slice[:, idx_y_check, :]
+#         deriv_eta_fitted_slice_ycheck = deriv_eta_fitted_slice[:, idx_y_check, :]
         
-        v_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = v_fitted_slice_ycheck[:, nz//2]
-        eta_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = eta_fitted_slice_ycheck[:, nz//2]
-        v_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = v_slice_ycheck[:, nz//2]
-        eta_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = eta_slice_ycheck[:, nz//2]
-        deriv_v_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_v_slice_ycheck[:, nz//2]
-        deriv_eta_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_eta_slice_ycheck[:, nz//2]
-        deriv_v_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_v_fitted_slice_ycheck[:, nz//2]
-        deriv_eta_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_eta_fitted_slice_ycheck[:, nz//2]  
+#         v_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = v_fitted_slice_ycheck[:, nz//2]
+#         eta_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = eta_fitted_slice_ycheck[:, nz//2]
+#         v_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = v_slice_ycheck[:, nz//2]
+#         eta_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = eta_slice_ycheck[:, nz//2]
+#         deriv_v_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_v_slice_ycheck[:, nz//2]
+#         deriv_eta_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_eta_slice_ycheck[:, nz//2]
+#         deriv_v_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_v_fitted_slice_ycheck[:, nz//2]
+#         deriv_eta_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_eta_fitted_slice_ycheck[:, nz//2]  
 
-        v_min = np.min(v_slice_ycheck)
-        v_max = np.max(v_slice_ycheck)
-        # v_spacing = 1e-6  # 等高线间距
+#         v_min = np.min(v_slice_ycheck)
+#         v_max = np.max(v_slice_ycheck)
+#         # v_spacing = 1e-6  # 等高线间距
         
-        eta_min = np.min(eta_slice_ycheck)
-        eta_max = np.max(eta_slice_ycheck)
-        # eta_spacing = 1e-6  # 等高线间距
+#         eta_min = np.min(eta_slice_ycheck)
+#         eta_max = np.max(eta_slice_ycheck)
+#         # eta_spacing = 1e-6  # 等高线间距
 
-        # 构造等高线 levels
-        # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
-        plt.figure(figsize=(10,6))
-        # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
-        plt.pcolormesh(x, z, v_slice_ycheck.T, cmap='bwr')
-        plt.colorbar()
-        plt.xlabel(r"$x$")
-        plt.ylabel(r"$z$")
-        plt.xlim(np.min(x), np.max(x))
-        plt.ylim(np.min(z), np.max(z))
-        plt.title(f"Normal velocity v at t={t_check}, y={y_check}")
-        plt.tight_layout()
-        plt.show()
+#         # 构造等高线 levels
+#         # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
+#         # plt.figure(figsize=(10,6))
+#         # # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
+#         # plt.pcolormesh(x, z, v_slice_ycheck.T, cmap='bwr')
+#         # plt.colorbar()
+#         # plt.xlabel(r"$x$")
+#         # plt.ylabel(r"$z$")
+#         # plt.xlim(np.min(x), np.max(x))
+#         # plt.ylim(np.min(z), np.max(z))
+#         # plt.title(f"Normal velocity v at t={t_check}, y={y_check}")
+#         # plt.tight_layout()
+#         # plt.show()
         
-        plt.figure(figsize=(10, 6))
-        # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
-        cs = plt.contour(x, z, v_slice_ycheck.T, colors='black', linewidths=0.6)
-        # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
-        # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
-        # plt.colorbar()
-        plt.xlabel(r"$x$")
-        plt.ylabel(r"$z$")
-        plt.xlim(np.min(x), np.max(x))
-        plt.ylim(np.min(z), np.max(z))
-        plt.title(f"Contours of normal velocity v at t={t_check}, y={y_check}")
-        plt.tight_layout()
-        plt.show()
+#         # plt.figure(figsize=(10, 6))
+#         # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
+#         # cs = plt.contour(x, z, v_slice_ycheck.T, colors='black', linewidths=0.6)
+#         # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
+#         # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
+#         # # plt.colorbar()
+#         # plt.xlabel(r"$x$")
+#         # plt.ylabel(r"$z$")
+#         # plt.xlim(np.min(x), np.max(x))
+#         # plt.ylim(np.min(z), np.max(z))
+#         # plt.title(f"Contours of normal velocity v at t={t_check}, y={y_check}")
+#         # plt.tight_layout()
+#         # plt.show()
         
-        plt.figure(figsize=(10,6))
-        # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
-        plt.pcolormesh(x, z, v_fitted_slice_ycheck.T, cmap='bwr')
-        plt.colorbar()
-        plt.xlabel(r"$x$")
-        plt.ylabel(r"$z$")
-        plt.xlim(np.min(x), np.max(x))
-        plt.ylim(np.min(z), np.max(z))
-        plt.title(f"Fitted normal velocity v at t={t_check}, y={y_check}")
-        plt.tight_layout()
-        plt.show()
+#         # plt.figure(figsize=(10,6))
+#         # # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
+#         # plt.pcolormesh(x, z, v_fitted_slice_ycheck.T, cmap='bwr')
+#         # plt.colorbar()
+#         # plt.xlabel(r"$x$")
+#         # plt.ylabel(r"$z$")
+#         # plt.xlim(np.min(x), np.max(x))
+#         # plt.ylim(np.min(z), np.max(z))
+#         # plt.title(f"Fitted normal velocity v at t={t_check}, y={y_check}")
+#         # plt.tight_layout()
+#         # plt.show()
         
-        plt.figure(figsize=(10, 6))
-        # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
-        cs = plt.contour(x, z, v_fitted_slice_ycheck.T, colors='black', linewidths=0.6)
-        # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
-        # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
-        # plt.colorbar()
-        plt.xlabel(r"$x$")
-        plt.ylabel(r"$z$")
-        plt.xlim(np.min(x), np.max(x))
-        plt.ylim(np.min(z), np.max(z))
-        plt.title(f"Contours of fitted normal velocity v at t={t_check}, y={y_check}")
-        plt.tight_layout()
-        plt.show()
+#         # plt.figure(figsize=(10, 6))
+#         # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
+#         # cs = plt.contour(x, z, v_fitted_slice_ycheck.T, colors='black', linewidths=0.6)
+#         # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
+#         # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
+#         # # plt.colorbar()
+#         # plt.xlabel(r"$x$")
+#         # plt.ylabel(r"$z$")
+#         # plt.xlim(np.min(x), np.max(x))
+#         # plt.ylim(np.min(z), np.max(z))
+#         # plt.title(f"Contours of fitted normal velocity v at t={t_check}, y={y_check}")
+#         # plt.tight_layout()
+#         # plt.show()
         
-    plt.figure(figsize=(10,6))
-    for i in range (len(t_check_list)):
-        plt.plot(x, eta_fitted_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"Fitted normal vorticity at y={}".format(y_check))
-    plt.title("Fitted normal vorticity at y={} over time".format(y_check))
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+#     plt.figure(figsize=(10,6))
+#     for i in range (len(t_check_list)):
+#         plt.plot(x, eta_fitted_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
+#     plt.xlabel(r"$x$")
+#     plt.ylabel(r"Fitted normal vorticity at y={}".format(y_check))
+#     plt.title("Fitted normal vorticity at y={} over time".format(y_check))
+#     plt.legend()
+#     plt.tight_layout()
+#     plt.show()
     
-    plt.figure(figsize=(10,6))
-    for i in range (len(t_check_list)):
-        plt.plot(x, eta_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"Normal vorticity at y={}".format(y_check))
-    plt.title("Normal vorticity at y={} over time".format(y_check))
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+#     plt.figure(figsize=(10,6))
+#     for i in range (len(t_check_list)):
+#         plt.plot(x, eta_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
+#     plt.xlabel(r"$x$")
+#     plt.ylabel(r"Normal vorticity at y={}".format(y_check))
+#     plt.title("Normal vorticity at y={} over time".format(y_check))
+#     plt.legend()
+#     plt.tight_layout()
+#     plt.show()
     
-    plt.figure(figsize=(10,6))
-    for i in range (len(t_check_list)):
-        plt.plot(x, deriv_eta_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"RHS of the normal vorticity at y={}".format(y_check))
-    plt.title("RHS of the normal vorticity at y={} over time".format(y_check))
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+#     plt.figure(figsize=(10,6))
+#     for i in range (len(t_check_list)):
+#         plt.plot(x, deriv_eta_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
+#     plt.xlabel(r"$x$")
+#     plt.ylabel(r"RHS of the normal vorticity at y={}".format(y_check))
+#     plt.title("RHS of the normal vorticity at y={} over time".format(y_check))
+#     plt.legend()
+#     plt.tight_layout()
+#     plt.show()
     
-    plt.figure(figsize=(10,6))
-    for i in range (len(t_check_list)):
-        plt.plot(x, deriv_eta_fitted_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"Fitted RHS of the normal vorticity at y={}".format(y_check))
-    plt.title("Fitted RHS of the normal vorticity at y={} over time".format(y_check))
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+#     plt.figure(figsize=(10,6))
+#     for i in range (len(t_check_list)):
+#         plt.plot(x, deriv_eta_fitted_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
+#     plt.xlabel(r"$x$")
+#     plt.ylabel(r"Fitted RHS of the normal vorticity at y={}".format(y_check))
+#     plt.title("Fitted RHS of the normal vorticity at y={} over time".format(y_check))
+#     plt.legend()
+#     plt.tight_layout()
+#     plt.show()
     
+### Now testing: we try to load these data and perform POD on the template-fitted trajectory data
+    
+#%% # Generate and save trajectory
+pool_inputs = (MPI.COMM_WORLD, n_traj)
+pool_kwargs = {'fname_time':fname_time, 'fname_traj':fname_traj,'fname_traj_fitted':fname_traj_fitted,
+               'fname_X_template':fname_traj_template, 'fname_X_template_dx':fname_traj_template_dx, 'fname_X_template_dxx':fname_traj_template_dxx,
+               'fname_deriv':fname_deriv,'fname_deriv_fitted':fname_deriv_fitted,
+               'fname_shift_amount':fname_shift_amount,'fname_shift_speed':fname_shift_speed}
+pool = classes.mpi_pool(*pool_inputs,**pool_kwargs)
+pool.load_data()
+
+T_final = pool.time[-1]
+
+r = 25 # ROM dimension, should account for 99.5% energy
+timespan_percentage_POD = 1.00 # percentage of the entire timespan used for POD
+snapshot_start_time_idx_POD = 0
+snapshot_end_time_idx_POD = 1 + int(timespan_percentage_POD * (pool.n_snapshots - 1))
+max_iterations = 20
+leggauss_deg = 5
+nsave_rom = 11 # nsave_rom = 1 + int(dt_sample/dt) = 1 + sample_interval
+which_trajs = np.arange(0, pool.my_n_traj, 1)
+which_times = np.arange(snapshot_start_time_idx_POD,snapshot_end_time_idx_POD,1)
+
+poly_comp = [1, 2] # polynomial degree for the ROM dynamics
+
+opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
+opt_obj = classes.optimization_objects(*opt_obj_inputs)
+
+Phi_POD, cumulative_energy_proportion = opinf_fun.perform_POD(pool,opt_obj,r)
+Psi_POD = Phi_POD.copy()
+PhiF_POD = Phi_POD@scipy.linalg.inv(Psi_POD.T@Phi_POD)
+
+plt.semilogy(np.arange(1, len(cumulative_energy_proportion) + 1), cumulative_energy_proportion, marker='o')
+plt.xlabel("Number of POD modes")
+plt.ylabel("Cumulative Energy Proportion")
+plt.title("Cumulative Energy Proportion vs Number of POD Modes")
+plt.grid()
+plt.tight_layout()
+plt.show()
 
 # endregion
 

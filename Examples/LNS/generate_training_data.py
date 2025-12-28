@@ -361,7 +361,7 @@ nsave_rom = 11 # nsave_rom = 1 + int(dt_sample/dt) = 1 + sample_interval
 which_trajs = np.arange(0, pool.my_n_traj, 1)
 which_times = np.arange(snapshot_start_time_idx_POD,snapshot_end_time_idx_POD,1)
 
-poly_comp = [1, 2] # polynomial degree for the ROM dynamics
+poly_comp = [1] # polynomial degree for the ROM dynamics
 
 opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
 opt_obj = classes.optimization_objects(*opt_obj_inputs)
@@ -377,7 +377,7 @@ plt.grid()
 plt.tight_layout()
 plt.show()
 
-Psi_POD, PhiF_POD = fom.generate_projection_matrices(Phi_POD, Psi_POD)
+Psi_POD, PhiF_POD = fom.generate_weighted_projection_bases(Phi_POD, Psi_POD)
 
 ### Test the reconstruction accuracy of POD basis
 
@@ -413,158 +413,85 @@ print(f"Weighted (Physical) Error:  {rel_error_W:.4e}")
 
 ...
 
-#     traj_v = traj[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-#     traj_eta = traj[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
-#     traj_v_fitted = traj_fitted[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-#     traj_eta_fitted = traj_fitted[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
-#     deriv_v = deriv[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-#     deriv_eta = deriv[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
-#     deriv_v_fitted = deriv_fitted[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-#     deriv_eta_fitted = deriv_fitted[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
-    
-#     t_check_list = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 190.0, 200.0]
-#     y_check = -0.56
-    
-#     v_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-#     eta_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-#     v_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-#     eta_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-#     deriv_v_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-#     deriv_eta_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-#     deriv_v_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
-#     deriv_eta_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+### Test the SR-Galerkin ROM simulation accuracy
 
-#     for t_check in t_check_list:
+Tensors_POD = fom.assemble_petrov_galerkin_tensors(PhiF_POD, Psi_POD) # A, p, s, M
 
-#         idx_sample = int(t_check / (dt * nsave))
-#         v_slice = traj_v[:, :, :, idx_sample]
-#         eta_slice = traj_eta[:, :, :, idx_sample]
-#         v_fitted_slice = traj_v_fitted[:, :, :, idx_sample]
-#         eta_fitted_slice = traj_eta_fitted[:, :, :, idx_sample]
-#         deriv_v_slice = deriv_v[:, :, :, idx_sample]
-#         deriv_eta_slice = deriv_eta[:, :, :, idx_sample]
-#         deriv_v_fitted_slice = deriv_v_fitted[:, :, :, idx_sample]
-#         deriv_eta_fitted_slice = deriv_eta_fitted[:, :, :, idx_sample]
-#         idx_y_check = np.argmin(np.abs(y - y_check))
-#         v_slice_ycheck = v_slice[:, idx_y_check, :]
-#         v_fitted_slice_ycheck = v_fitted_slice[:, idx_y_check, :]
-#         eta_slice_ycheck = eta_slice[:, idx_y_check, :]
-#         eta_fitted_slice_ycheck = eta_fitted_slice[:, idx_y_check, :]
-#         deriv_v_slice_ycheck = deriv_v_slice[:, idx_y_check, :]
-#         deriv_v_fitted_slice_ycheck = deriv_v_fitted_slice[:, idx_y_check, :]
-#         deriv_eta_slice_ycheck = deriv_eta_slice[:, idx_y_check, :]
-#         deriv_eta_fitted_slice_ycheck = deriv_eta_fitted_slice[:, idx_y_check, :]
-        
-#         v_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = v_fitted_slice_ycheck[:, nz//2]
-#         eta_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = eta_fitted_slice_ycheck[:, nz//2]
-#         v_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = v_slice_ycheck[:, nz//2]
-#         eta_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = eta_slice_ycheck[:, nz//2]
-#         deriv_v_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_v_slice_ycheck[:, nz//2]
-#         deriv_eta_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_eta_slice_ycheck[:, nz//2]
-#         deriv_v_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_v_fitted_slice_ycheck[:, nz//2]
-#         deriv_eta_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_eta_fitted_slice_ycheck[:, nz//2]  
+for k in range(pool.my_n_traj):
+    traj_idx = k + pool.disps[pool.rank]
+    print("Preparing SR-Galerkin simulation %d/%d"%(traj_idx,pool.n_traj))
+    traj_SRG_init = Psi_POD.T@opt_obj.X_fitted[k,:,0].reshape(-1)
+    shifting_amount_SRG_init = opt_obj.c[k,0]
 
-#         v_min = np.min(v_slice_ycheck)
-#         v_max = np.max(v_slice_ycheck)
-#         # v_spacing = 1e-6  # 等高线间距
-        
-#         eta_min = np.min(eta_slice_ycheck)
-#         eta_max = np.max(eta_slice_ycheck)
-#         # eta_spacing = 1e-6  # 等高线间距
+    sol_SRG = solve_ivp(opt_obj.evaluate_rom_rhs,
+                    [opt_obj.time[0],opt_obj.time[-1]],
+                    np.hstack((traj_SRG_init, shifting_amount_SRG_init)),
+                    'RK45',
+                    t_eval=opt_obj.time,
+                    args=(np.zeros(r),) + Tensors_POD).y
+    
+    traj_fitted_SRG = PhiF_POD@sol_SRG[:-1,:]
+    traj_fitted_SRG_v = traj_fitted_SRG[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
+    traj_fitted_SRG_eta = traj_fitted_SRG[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+    shifting_amount_SRG = sol_SRG[-1,:]
+    traj_SRG = np.zeros_like(traj_fitted_SRG)
+    shifting_speed_SRG = np.zeros_like(shifting_amount_SRG)
 
-#         # 构造等高线 levels
-#         # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
-#         # plt.figure(figsize=(10,6))
-#         # # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
-#         # plt.pcolormesh(x, z, v_slice_ycheck.T, cmap='bwr')
-#         # plt.colorbar()
-#         # plt.xlabel(r"$x$")
-#         # plt.ylabel(r"$z$")
-#         # plt.xlim(np.min(x), np.max(x))
-#         # plt.ylim(np.min(z), np.max(z))
-#         # plt.title(f"Normal velocity v at t={t_check}, y={y_check}")
-#         # plt.tight_layout()
-#         # plt.show()
+    for j in range (len(opt_obj.time)):
+        traj_SRG_v_vec = fom.shift_x_input_3D(traj_fitted_SRG_v[:, :, :, j], shifting_amount_SRG[j])
+        traj_SRG_eta_vec = fom.shift_x_input_3D(traj_fitted_SRG_eta[:, :, :, j], shifting_amount_SRG[j])
+        traj_SRG[:,j] = np.concatenate((traj_SRG_v_vec.ravel(), traj_SRG_eta_vec.ravel()))
+        shifting_speed_SRG[j] = opt_obj.compute_shift_speed(sol_SRG[:-1,j], Tensors_POD)
+        relative_error[j] = ...
         
-#         # plt.figure(figsize=(10, 6))
-#         # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
-#         # cs = plt.contour(x, z, v_slice_ycheck.T, colors='black', linewidths=0.6)
-#         # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
-#         # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
-#         # # plt.colorbar()
-#         # plt.xlabel(r"$x$")
-#         # plt.ylabel(r"$z$")
-#         # plt.xlim(np.min(x), np.max(x))
-#         # plt.ylim(np.min(z), np.max(z))
-#         # plt.title(f"Contours of normal velocity v at t={t_check}, y={y_check}")
-#         # plt.tight_layout()
-#         # plt.show()
+    relative_error_space_time_SRG[traj_idx] = np.linalg.norm(opt_obj.X[k,:,:] - X_SRG)/np.linalg.norm(opt_obj.X[k,:,:])
+    X_FOM = opt_obj.X[k,:,:]
+    c_FOM = opt_obj.c[k,:]
+    cdot_FOM = opt_obj.cdot[k,:]
+    X_fitted_FOM = opt_obj.X_fitted[k,:,:]
         
-#         # plt.figure(figsize=(10,6))
-#         # # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
-#         # plt.pcolormesh(x, z, v_fitted_slice_ycheck.T, cmap='bwr')
-#         # plt.colorbar()
-#         # plt.xlabel(r"$x$")
-#         # plt.ylabel(r"$z$")
-#         # plt.xlim(np.min(x), np.max(x))
-#         # plt.ylim(np.min(z), np.max(z))
-#         # plt.title(f"Fitted normal velocity v at t={t_check}, y={y_check}")
-#         # plt.tight_layout()
-#         # plt.show()
-        
-#         # plt.figure(figsize=(10, 6))
-#         # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
-#         # cs = plt.contour(x, z, v_fitted_slice_ycheck.T, colors='black', linewidths=0.6)
-#         # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
-#         # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
-#         # # plt.colorbar()
-#         # plt.xlabel(r"$x$")
-#         # plt.ylabel(r"$z$")
-#         # plt.xlim(np.min(x), np.max(x))
-#         # plt.ylim(np.min(z), np.max(z))
-#         # plt.title(f"Contours of fitted normal velocity v at t={t_check}, y={y_check}")
-#         # plt.tight_layout()
-#         # plt.show()
-        
-#     plt.figure(figsize=(10,6))
-#     for i in range (len(t_check_list)):
-#         plt.plot(x, eta_fitted_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
-#     plt.xlabel(r"$x$")
-#     plt.ylabel(r"Fitted normal vorticity at y={}".format(y_check))
-#     plt.title("Fitted normal vorticity at y={} over time".format(y_check))
-#     plt.legend()
-#     plt.tight_layout()
-#     plt.show()
+    np.save(fname_traj_FOM%traj_idx,X_FOM)
+    np.save(fname_traj_fitted_FOM%traj_idx,X_fitted_FOM)
+    np.save(fname_shift_amount_FOM%traj_idx,c_FOM)
+    np.save(fname_shift_speed_FOM%traj_idx,cdot_FOM)    
+    np.save(fname_traj_SRG%traj_idx,X_SRG)
+    np.save(fname_traj_fitted_SRG%traj_idx,X_fitted_SRG)
+    np.save(fname_shift_amount_SRG%traj_idx,c_SRG)
+    np.save(fname_shift_speed_SRG%traj_idx,cdot_SRG)
+    np.save(fname_relative_error_SRG%traj_idx,relative_error)
     
-#     plt.figure(figsize=(10,6))
-#     for i in range (len(t_check_list)):
-#         plt.plot(x, eta_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
-#     plt.xlabel(r"$x$")
-#     plt.ylabel(r"Normal vorticity at y={}".format(y_check))
-#     plt.title("Normal vorticity at y={} over time".format(y_check))
-#     plt.legend()
-#     plt.tight_layout()
-#     plt.show()
+    ### Plotting, things to be done:
+    ### 1. switch from contourf to pcolormesh
+    ### 2. apply Fourier spectral interpolation to plot a 40-mode solution on a 256-point grid for better visualization
     
-#     plt.figure(figsize=(10,6))
-#     for i in range (len(t_check_list)):
-#         plt.plot(x, deriv_eta_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
-#     plt.xlabel(r"$x$")
-#     plt.ylabel(r"RHS of the normal vorticity at y={}".format(y_check))
-#     plt.title("RHS of the normal vorticity at y={} over time".format(y_check))
-#     plt.legend()
-#     plt.tight_layout()
-#     plt.show()
+    plt.figure(figsize=(10,6))
+    plt.contourf(x,opt_obj.time,opt_obj.X[k,:,:].T, levels = np.linspace(-16, 16, 9), cmap=cmap_name)
+    plt.colorbar()
+    plt.xlabel(r"$x$")
+    plt.ylabel(r"$t$")
+    plt.tight_layout()
+    if traj_idx == 0:
+        plt.title(f"FOM solution, initial condition = uIC")
+    else:
+        plt.title(f"FOM solution, initial condition = uIC + {amp_array[traj_idx - 1]} * {training_ic_perturbation_name}")
+    plt.savefig(fig_path + "traj_FOM_%03d.png"%traj_idx)
+    plt.close()
+
+    plt.figure(figsize=(10,6))
+    plt.contourf(x,opt_obj.time,X_SRG.T, levels = np.linspace(-16, 16, 9), cmap=cmap_name)
+    plt.colorbar()
+    plt.xlabel(r"$x$")
+    plt.ylabel(r"$t$")
+    plt.tight_layout()
+    if traj_idx == 0:
+        plt.title(f"SRG solution, error: {relative_error_space_time_SRG[k]:.4e}, initial condition = uIC")
+    else:
+        plt.title(f"SRG solution, error: {relative_error_space_time_SRG[k]:.4e}, initial condition = uIC + {amp_array[traj_idx - 1]} * {training_ic_perturbation_name}")
+    plt.savefig(fig_path + "traj_SRG_%03d.png"%traj_idx)
+    plt.close()
     
-#     plt.figure(figsize=(10,6))
-#     for i in range (len(t_check_list)):
-#         plt.plot(x, deriv_eta_fitted_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
-#     plt.xlabel(r"$x$")
-#     plt.ylabel(r"Fitted RHS of the normal vorticity at y={}".format(y_check))
-#     plt.title("Fitted RHS of the normal vorticity at y={} over time".format(y_check))
-#     plt.legend()
-#     plt.tight_layout()
-#     plt.show()
+relative_error_space_time_SRG = np.sum(np.asarray(pool.comm.allgather(relative_error_space_time_SRG)), axis=0)
+
 
 # endregion
 

@@ -487,7 +487,7 @@ class LNS:
         # 3. 转置回 (2N, r)
         return W_Basis_T.T  # shape: (2N, M)
     
-    def generate_projection_matrices(self, Phi, Psi=None):
+    def generate_weighted_projection_matrices(self, Phi, Psi=None):
         """
         生成投影矩阵 M 和重构矩阵 P。
         
@@ -676,6 +676,46 @@ class LNS:
         linear_eta = self.IFFT_2D(linear_eta_breve)
         
         return np.concatenate((linear_v.ravel(), linear_eta.ravel()))
+    
+    def assemble_petrov_galerkin_tensors(self, PhiF, Psi):
+        """Assemble the Petrov-Galerkin projection matrices."""
+        
+        r = Psi.shape[1]
+        A_mat = np.zeros((r, r))
+        p_vec = np.zeros(r)
+        s_vec = np.zeros(r)
+
+        PhiF_dx = self.diff_x_basis(PhiF, order=1)
+        
+        M_mat = Psi.T @ PhiF_dx
+        
+        for i in range(r):
+            linear_v = self.linear(PhiF[:, i])[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
+            linear_eta = self.linear(PhiF[:, i])[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
+            PhiF_dx_v = PhiF_dx[0 : self.nx * self.ny * self.nz, i].reshape((self.nx, self.ny, self.nz))
+            PhiF_dx_eta = PhiF_dx[self.nx * self.ny * self.nz : , i].reshape((self.nx, self.ny, self.nz))
+            p_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, linear_v, linear_eta)
+            s_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, PhiF_dx_v, PhiF_dx_eta)
+            for j in range(r):
+                A_mat[i, j] = np.dot(Psi[:, i], self.linear(PhiF[:, j]))
+
+        return (A_mat, p_vec, s_vec, M_mat)
+    
+    def diff_x_basis(self, Phi, order):
+        """Compute the spatial derivative of the basis functions in x direction."""
+        
+        r = Phi.shape[1]
+        Phi_dx = np.zeros_like(Phi)
+        
+        for i in range(r):
+            v_basis = Phi[0 : self.nx * self.ny * self.nz, i].reshape((self.nx, self.ny, self.nz))
+            eta_basis = Phi[self.nx * self.ny * self.nz : , i].reshape((self.nx, self.ny, self.nz))
+            v_basis_dx = self.diff_x(v_basis, order=order)
+            eta_basis_dx = self.diff_x(eta_basis, order=order)
+            Phi_dx[0 : self.nx * self.ny * self.nz, i] = v_basis_dx.ravel()
+            Phi_dx[self.nx * self.ny * self.nz : , i] = eta_basis_dx.ravel()
+        
+        return Phi_dx
     
     def exp_linear_frequency_domain(self, exp_linear_mat, q_breve_vec):
         """Evaluate exp-linear operator exp(dt*L)q for the exponential timestepper."""

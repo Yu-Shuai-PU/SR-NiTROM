@@ -351,8 +351,8 @@ pool.load_data()
 
 T_final = pool.time[-1]
 
-r = 25 # ROM dimension, should account for 99.5% energy
-timespan_percentage_POD = 1.00 # percentage of the entire timespan used for POD
+r = 20 # ROM dimension, should account for 99.5% energy
+timespan_percentage_POD = 1 # percentage of the entire timespan used for POD
 snapshot_start_time_idx_POD = 0
 snapshot_end_time_idx_POD = 1 + int(timespan_percentage_POD * (pool.n_snapshots - 1))
 max_iterations = 20
@@ -366,17 +366,205 @@ poly_comp = [1, 2] # polynomial degree for the ROM dynamics
 opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
 opt_obj = classes.optimization_objects(*opt_obj_inputs)
 
-Phi_POD, cumulative_energy_proportion = opinf_fun.perform_POD(pool,opt_obj,r)
+Phi_POD, cumulative_energy_proportion = opinf_fun.perform_POD(pool,opt_obj,r,fom)
 Psi_POD = Phi_POD.copy()
-PhiF_POD = Phi_POD@scipy.linalg.inv(Psi_POD.T@Phi_POD)
 
 plt.semilogy(np.arange(1, len(cumulative_energy_proportion) + 1), cumulative_energy_proportion, marker='o')
 plt.xlabel("Number of POD modes")
 plt.ylabel("Cumulative Energy Proportion")
-plt.title("Cumulative Energy Proportion vs Number of POD Modes")
+plt.title("Cumulative Energy Proportion vs Number of POD Modes (Snapshot Method)")
 plt.grid()
 plt.tight_layout()
 plt.show()
+
+Psi_POD, PhiF_POD = fom.generate_projection_matrices(Phi_POD, Psi_POD)
+
+### Test the reconstruction accuracy of POD basis
+
+traj_fitted = opt_obj.X_fitted[0,:,:]
+
+traj_fitted_proj = Psi_POD.T @ traj_fitted
+traj_fitted_recon = PhiF_POD @ traj_fitted_proj
+
+# 1. 计算原始误差场 (Difference)
+diff_matrix = traj_fitted - traj_fitted_recon
+
+# 2. 计算 W * Diff 和 W * Original
+# 利用现有的函数计算加权后的矩阵
+# compute_W_times_basis 既然能算 Basis (2N, r)，当然也能算 Snapshots (2N, M)
+W_diff_matrix = fom.compute_W_times_basis(diff_matrix)
+W_traj_fitted = fom.compute_W_times_basis(traj_fitted)
+
+# 3. 计算加权范数 (Weighted Norms)
+# 技巧：||A||_W^2 = sum(A * (W*A))。
+# 这里的 sum 是对矩阵所有元素求和 (相当于 trace(A.T @ W @ A))
+
+# 误差的加权能量
+norm_error_W = np.sqrt(np.sum(diff_matrix * W_diff_matrix))
+
+# 原始流场的加权能量
+norm_traj_W  = np.sqrt(np.sum(traj_fitted * W_traj_fitted))
+
+# 4. 计算相对误差
+rel_error_W = norm_error_W / norm_traj_W
+
+print(f"Standard (Euclidean) Error: {np.linalg.norm(diff_matrix) / np.linalg.norm(traj_fitted):.4e}")
+print(f"Weighted (Physical) Error:  {rel_error_W:.4e}")
+
+...
+
+#     traj_v = traj[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
+#     traj_eta = traj[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+#     traj_v_fitted = traj_fitted[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
+#     traj_eta_fitted = traj_fitted[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+#     deriv_v = deriv[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
+#     deriv_eta = deriv[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+#     deriv_v_fitted = deriv_fitted[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
+#     deriv_eta_fitted = deriv_fitted[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+    
+#     t_check_list = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 190.0, 200.0]
+#     y_check = -0.56
+    
+#     v_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     eta_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     v_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     eta_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     deriv_v_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     deriv_eta_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     deriv_v_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+#     deriv_eta_fitted_slice_ycheck_all_z_centered = np.zeros((nx, len(t_check_list)))
+
+#     for t_check in t_check_list:
+
+#         idx_sample = int(t_check / (dt * nsave))
+#         v_slice = traj_v[:, :, :, idx_sample]
+#         eta_slice = traj_eta[:, :, :, idx_sample]
+#         v_fitted_slice = traj_v_fitted[:, :, :, idx_sample]
+#         eta_fitted_slice = traj_eta_fitted[:, :, :, idx_sample]
+#         deriv_v_slice = deriv_v[:, :, :, idx_sample]
+#         deriv_eta_slice = deriv_eta[:, :, :, idx_sample]
+#         deriv_v_fitted_slice = deriv_v_fitted[:, :, :, idx_sample]
+#         deriv_eta_fitted_slice = deriv_eta_fitted[:, :, :, idx_sample]
+#         idx_y_check = np.argmin(np.abs(y - y_check))
+#         v_slice_ycheck = v_slice[:, idx_y_check, :]
+#         v_fitted_slice_ycheck = v_fitted_slice[:, idx_y_check, :]
+#         eta_slice_ycheck = eta_slice[:, idx_y_check, :]
+#         eta_fitted_slice_ycheck = eta_fitted_slice[:, idx_y_check, :]
+#         deriv_v_slice_ycheck = deriv_v_slice[:, idx_y_check, :]
+#         deriv_v_fitted_slice_ycheck = deriv_v_fitted_slice[:, idx_y_check, :]
+#         deriv_eta_slice_ycheck = deriv_eta_slice[:, idx_y_check, :]
+#         deriv_eta_fitted_slice_ycheck = deriv_eta_fitted_slice[:, idx_y_check, :]
+        
+#         v_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = v_fitted_slice_ycheck[:, nz//2]
+#         eta_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = eta_fitted_slice_ycheck[:, nz//2]
+#         v_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = v_slice_ycheck[:, nz//2]
+#         eta_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = eta_slice_ycheck[:, nz//2]
+#         deriv_v_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_v_slice_ycheck[:, nz//2]
+#         deriv_eta_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_eta_slice_ycheck[:, nz//2]
+#         deriv_v_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_v_fitted_slice_ycheck[:, nz//2]
+#         deriv_eta_fitted_slice_ycheck_all_z_centered[:, t_check_list.index(t_check)] = deriv_eta_fitted_slice_ycheck[:, nz//2]  
+
+#         v_min = np.min(v_slice_ycheck)
+#         v_max = np.max(v_slice_ycheck)
+#         # v_spacing = 1e-6  # 等高线间距
+        
+#         eta_min = np.min(eta_slice_ycheck)
+#         eta_max = np.max(eta_slice_ycheck)
+#         # eta_spacing = 1e-6  # 等高线间距
+
+#         # 构造等高线 levels
+#         # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
+#         # plt.figure(figsize=(10,6))
+#         # # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
+#         # plt.pcolormesh(x, z, v_slice_ycheck.T, cmap='bwr')
+#         # plt.colorbar()
+#         # plt.xlabel(r"$x$")
+#         # plt.ylabel(r"$z$")
+#         # plt.xlim(np.min(x), np.max(x))
+#         # plt.ylim(np.min(z), np.max(z))
+#         # plt.title(f"Normal velocity v at t={t_check}, y={y_check}")
+#         # plt.tight_layout()
+#         # plt.show()
+        
+#         # plt.figure(figsize=(10, 6))
+#         # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
+#         # cs = plt.contour(x, z, v_slice_ycheck.T, colors='black', linewidths=0.6)
+#         # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
+#         # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
+#         # # plt.colorbar()
+#         # plt.xlabel(r"$x$")
+#         # plt.ylabel(r"$z$")
+#         # plt.xlim(np.min(x), np.max(x))
+#         # plt.ylim(np.min(z), np.max(z))
+#         # plt.title(f"Contours of normal velocity v at t={t_check}, y={y_check}")
+#         # plt.tight_layout()
+#         # plt.show()
+        
+#         # plt.figure(figsize=(10,6))
+#         # # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
+#         # plt.pcolormesh(x, z, v_fitted_slice_ycheck.T, cmap='bwr')
+#         # plt.colorbar()
+#         # plt.xlabel(r"$x$")
+#         # plt.ylabel(r"$z$")
+#         # plt.xlim(np.min(x), np.max(x))
+#         # plt.ylim(np.min(z), np.max(z))
+#         # plt.title(f"Fitted normal velocity v at t={t_check}, y={y_check}")
+#         # plt.tight_layout()
+#         # plt.show()
+        
+#         # plt.figure(figsize=(10, 6))
+#         # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
+#         # cs = plt.contour(x, z, v_fitted_slice_ycheck.T, colors='black', linewidths=0.6)
+#         # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
+#         # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
+#         # # plt.colorbar()
+#         # plt.xlabel(r"$x$")
+#         # plt.ylabel(r"$z$")
+#         # plt.xlim(np.min(x), np.max(x))
+#         # plt.ylim(np.min(z), np.max(z))
+#         # plt.title(f"Contours of fitted normal velocity v at t={t_check}, y={y_check}")
+#         # plt.tight_layout()
+#         # plt.show()
+        
+#     plt.figure(figsize=(10,6))
+#     for i in range (len(t_check_list)):
+#         plt.plot(x, eta_fitted_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
+#     plt.xlabel(r"$x$")
+#     plt.ylabel(r"Fitted normal vorticity at y={}".format(y_check))
+#     plt.title("Fitted normal vorticity at y={} over time".format(y_check))
+#     plt.legend()
+#     plt.tight_layout()
+#     plt.show()
+    
+#     plt.figure(figsize=(10,6))
+#     for i in range (len(t_check_list)):
+#         plt.plot(x, eta_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
+#     plt.xlabel(r"$x$")
+#     plt.ylabel(r"Normal vorticity at y={}".format(y_check))
+#     plt.title("Normal vorticity at y={} over time".format(y_check))
+#     plt.legend()
+#     plt.tight_layout()
+#     plt.show()
+    
+#     plt.figure(figsize=(10,6))
+#     for i in range (len(t_check_list)):
+#         plt.plot(x, deriv_eta_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
+#     plt.xlabel(r"$x$")
+#     plt.ylabel(r"RHS of the normal vorticity at y={}".format(y_check))
+#     plt.title("RHS of the normal vorticity at y={} over time".format(y_check))
+#     plt.legend()
+#     plt.tight_layout()
+#     plt.show()
+    
+#     plt.figure(figsize=(10,6))
+#     for i in range (len(t_check_list)):
+#         plt.plot(x, deriv_eta_fitted_slice_ycheck_all_z_centered[:, i], label=f"t={t_check_list[i]}")
+#     plt.xlabel(r"$x$")
+#     plt.ylabel(r"Fitted RHS of the normal vorticity at y={}".format(y_check))
+#     plt.title("Fitted RHS of the normal vorticity at y={} over time".format(y_check))
+#     plt.legend()
+#     plt.tight_layout()
+#     plt.show()
 
 # endregion
 

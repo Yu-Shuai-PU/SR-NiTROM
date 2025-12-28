@@ -272,6 +272,273 @@ class LNS:
 
         return np.real(final_result)
     
+    def compute_snapshot_correlation_matrix(self, q_vec_snapshots):
+        """
+        Efficiently compute the correlation matrix C for a batch of snapshots using vectorized operations.
+        
+        Input:
+            q_vec_snapshots -- vectorized spatial functions with shape (2 * nx * ny * nz, M_snapshots)
+            
+        Output:
+            C -- Correlation matrix with shape (M_snapshots, M_snapshots)
+                 where C[i, j] = inner_product_3D(snapshot[i], snapshot[j])
+        """
+        
+        # 1. Shape & Dimensions
+        num_grid = self.nx * self.ny * self.nz
+        M = q_vec_snapshots.shape[1]
+        nx, ny, nz = self.nx, self.ny, self.nz
+        
+        # 2. Reshape and Split into v and eta (Batch mode)
+        # Input shape: (2*grid, M) -> Transpose to (M, 2*grid) -> Reshape to (M, nx, ny, nz)
+        snapshots_v = q_vec_snapshots[:num_grid, :].T.reshape(M, nx, ny, nz)
+        snapshots_eta = q_vec_snapshots[num_grid:, :].T.reshape(M, nx, ny, nz)
+        
+        # 3. Batch FFT (Vectorized FFT_2D logic)
+        # Apply FFT along x (axis 1) and z (axis 3) for the whole batch
+        v_hat = np.fft.fft2(snapshots_v, axes=(1, 3))
+        v_hat = np.fft.fftshift(v_hat, axes=(1, 3))
+        v_hat /= (nx * nz) # Scaling consistent with FFT_2D
+        
+        eta_hat = np.fft.fft2(snapshots_eta, axes=(1, 3))
+        eta_hat = np.fft.fftshift(eta_hat, axes=(1, 3))
+        eta_hat /= (nx * nz) # Scaling consistent with FFT_2D
+        
+        # Nyquist Mode Handling (Vectorized)
+        if (nx % 2) == 0:
+            v_hat[:, 0, :, :] = 0
+            eta_hat[:, 0, :, :] = 0
+        if (nz % 2) == 0:
+            v_hat[:, :, :, 0] = 0
+            eta_hat[:, :, :, 0] = 0
+            
+        # 4. Batch Derivatives (Vectorized Chebyshev D1)
+        # self.D1 is (ny, ny). We apply it to axis 2 (y) of the batch array (M, nx, ny, nz)
+        # Einstein summation: D1[j,k] * v_hat[m,i,k,l] -> result[m,i,j,l]
+        dv_dy_hat = np.einsum('jk, mikl -> mijl', self.D1, v_hat)
+        
+        # 5. Prepare Weights and Factors (Broadcasting)
+        # Reshape weights to (1, nx, ny, nz) compatible shapes for broadcasting
+        
+        # Clenshaw-Curtis weights (y-direction): shape (ny,) -> (1, 1, ny, 1)
+        w_expanded = self.Clenshaw_Curtis_weights.reshape(1, 1, ny, 1)
+        
+        # Inner Product Factor (x,z-direction): shape (nx, nz) -> (1, nx, 1, nz)
+        # Note: self.inner_product_factor was squeezed in __init__
+        factor_expanded = self.inner_product_factor.reshape(1, nx, 1, nz)
+        
+        # k_sq (x,z-direction): shape (nx, 1, nz) -> (1, nx, 1, nz)
+        # Note: self.k_sq in __init__ is (nx, 1, nz), it broadcasts fine, but reshape is safer
+        k_sq_expanded = self.k_sq.reshape(1, nx, 1, nz)
+        
+        # Combined Scaling Factor S = w * factor
+        S = w_expanded * factor_expanded # shape (1, nx, ny, nz)
+        sqrt_S = np.sqrt(S)
+        
+        # 6. Construct Feature Components (A * conj(B) -> A . B vector form)
+        
+        # Term 1: dv/dy * conj(dv/dy) -> Feature: dv/dy * sqrt(S)
+        feat_1 = dv_dy_hat * sqrt_S
+        
+        # Term 2: k^2 * v * conj(v) -> Feature: v * sqrt(k^2) * sqrt(S)
+        feat_2 = v_hat * np.sqrt(k_sq_expanded) * sqrt_S
+        
+        # Term 3: eta * conj(eta) -> Feature: eta * sqrt(S)
+        feat_3 = eta_hat * sqrt_S
+        
+        # 7. Stack Features and Compute Matrix Product
+        # Flatten the spatial dimensions: (M, total_features)
+        Y = np.concatenate([
+            feat_1.reshape(M, -1),
+            feat_2.reshape(M, -1),
+            feat_3.reshape(M, -1)
+        ], axis=1)
+        
+        # Compute Correlation Matrix: C = Y @ Y.conj().T
+        # This effectively sums over all spatial points (dot product)
+        C = Y @ Y.conj().T
+        
+        return np.real(C)
+    
+    def _get_weighted_features(self, q_vec):
+        """
+        [Private] 前向特征映射: Y = L * q
+        将物理空间状态映射到加权特征空间，使得 <q1, q2>_W = <Y1, Y2>_Euclidean
+        
+        Input: q_vec -- shape (2N, M)
+        Output: Y -- shape (M, features = 3N)
+        """
+        # 1. 输入处理 (2N, M) -> (M, 2N) 以便 reshape
+        if q_vec.ndim == 1:
+            q_vec = q_vec[:, np.newaxis]
+        
+        M = q_vec.shape[1]
+        nx, ny, nz = self.nx, self.ny, self.nz
+        num_grid = nx * ny * nz
+        
+        # 2. 拆分 v 和 eta
+        q_v = q_vec[:num_grid, :].T.reshape(M, nx, ny, nz)
+        q_eta = q_vec[num_grid:, :].T.reshape(M, nx, ny, nz)
+        
+        # 3. 批量 FFT (复刻 FFT_2D 逻辑，包含归一化)
+        v_hat = np.fft.fftshift(np.fft.fft2(q_v, axes=(1, 3)), axes=(1, 3)) / (nx * nz)
+        eta_hat = np.fft.fftshift(np.fft.fft2(q_eta, axes=(1, 3)), axes=(1, 3)) / (nx * nz)
+        
+        # Nyquist 模态置零
+        if (nx % 2) == 0: v_hat[:, 0, :, :] = 0; eta_hat[:, 0, :, :] = 0
+        if (nz % 2) == 0: v_hat[:, :, :, 0] = 0; eta_hat[:, :, :, 0] = 0
+            
+        # 4. 计算导数 (D1 @ v)
+        dv_dy_hat = np.einsum('jk, mikl -> mijl', self.D1, v_hat)
+        
+        # 5. 准备权重 (Broadcasting)
+        w_exp = self.Clenshaw_Curtis_weights.reshape(1, 1, ny, 1)
+        fact_exp = self.inner_product_factor.reshape(1, nx, 1, nz)
+        ksq_exp = self.k_sq.reshape(1, nx, 1, nz)
+        
+        # 综合缩放因子 sqrt(w * factor)
+        sqrt_S = np.sqrt(w_exp * fact_exp)
+        
+        # 6. 构造特征分量 Y
+        # Term 1: dv/dy
+        f1 = dv_dy_hat * sqrt_S
+        # Term 2: v * |k|
+        f2 = v_hat * np.sqrt(ksq_exp) * sqrt_S
+        # Term 3: eta
+        f3 = eta_hat * sqrt_S
+        
+        # 7. 拼接拉直
+        Y = np.concatenate([
+            f1.reshape(M, -1),
+            f2.reshape(M, -1),
+            f3.reshape(M, -1)
+        ], axis=1)
+        
+        return Y
+
+    def _apply_adjoint_L(self, Y_features):
+        """
+        [Private] 伴随特征映射: q_w = L^H * Y
+        这是 _get_weighted_features 的逆向过程，用于计算 W * q
+        Input: Y_features (M, features = 3N)
+        Output: q_out (M, 2N)
+        """
+        M = Y_features.shape[0]
+        nx, ny, nz = self.nx, self.ny, self.nz
+        num_grid = nx * ny * nz
+        
+        # 1. 拆分特征
+        f1_flat = Y_features[:, 0:num_grid]
+        f2_flat = Y_features[:, num_grid:2*num_grid]
+        f3_flat = Y_features[:, 2*num_grid:3*num_grid]
+        
+        f1 = f1_flat.reshape(M, nx, ny, nz)
+        f2 = f2_flat.reshape(M, nx, ny, nz)
+        f3 = f3_flat.reshape(M, nx, ny, nz)
+        
+        # 2. 应用权重的伴随 (即权重本身)
+        w_exp = self.Clenshaw_Curtis_weights.reshape(1, 1, ny, 1)
+        fact_exp = self.inner_product_factor.reshape(1, nx, 1, nz)
+        ksq_exp = self.k_sq.reshape(1, nx, 1, nz)
+        sqrt_S = np.sqrt(w_exp * fact_exp)
+        
+        t1 = f1 * sqrt_S
+        t2 = f2 * np.sqrt(ksq_exp) * sqrt_S
+        t3 = f3 * sqrt_S
+        
+        # 3. 应用导数的伴随 (D1^T)
+        # t1 是导数项的贡献，通过 D1.T 映射回 v
+        v_from_deriv = np.einsum('jk, mikl -> mikl', self.D1.T, t1)
+        
+        # 汇总 v 和 eta
+        v_hat_w = v_from_deriv + t2
+        eta_hat_w = t3
+        
+        # 4. 应用 FFT 的伴随 (IFFT)
+        # 对应前向的 / (Nx*Nz)，直接用 ifft 即可
+        q_v = np.fft.ifft2(np.fft.ifftshift(v_hat_w, axes=(1,3)), axes=(1,3))
+        q_eta = np.fft.ifft2(np.fft.ifftshift(eta_hat_w, axes=(1,3)), axes=(1,3))
+        
+        # 取实部 (物理空间权重矩阵 W 是实对称的)
+        q_v = np.real(q_v)
+        q_eta = np.real(q_eta)
+        
+        # 5. 拼接输出 (M, 2N)
+        q_out = np.concatenate([
+            q_v.reshape(M, -1),
+            q_eta.reshape(M, -1)
+        ], axis=1)
+        
+        return q_out # shape: (M, 2N)
+
+    def compute_W_times_basis(self, Basis):
+        """
+        计算 W * Basis。这是生成 M 和 N 的核心函数。
+        Input:  Basis (2N, r)
+        Output: W_Basis (2N, r)
+        """
+        # 1. Forward: Y = L * Basis
+        # 输入转置一下以匹配 helper 的预期 (r, 2N)
+        Y = self._get_weighted_features(Basis) # shape: (M = n_snapshots, features = 3N)
+        # 2. Adjoint: Result = L^H * Y
+        # 输出是 (r, 2N)，即 (W * Basis)^T
+        W_Basis_T = self._apply_adjoint_L(Y) # shape: (M, 2N)
+        
+        # 3. 转置回 (2N, r)
+        return W_Basis_T.T  # shape: (2N, M)
+    
+    def generate_projection_matrices(self, Phi, Psi=None):
+        """
+        生成投影矩阵 M 和重构矩阵 P。
+        
+        Math:
+            N = W * Phi
+            M = W * Psi
+            P = Phi * (Psi^T * N)^-1
+            
+        Resulting Projection:
+            a = M.T @ q
+            q = P @ a
+            
+        Constraint:
+            M.T @ P = I
+        
+        Input:
+            Phi -- 重构基 (2N, r)
+            Psi -- 投影基 (2N, r). 如果为 None，默认 Psi=Phi (Galerkin)
+        Output:
+            M -- 投影矩阵的转置部分 (2N, r)
+            P -- 重构矩阵 (2N, r)
+        """
+        if Psi is None:
+            Psi = Phi
+            print("Generating Galerkin Matrices (Psi=Phi)...")
+        else:
+            print("Generating Petrov-Galerkin Matrices...")
+            
+        # 1. 计算 N = W * Phi
+        N_mat = self.compute_W_times_basis(Phi)
+        
+        # 2. 计算 M = W * Psi
+        M_mat = self.compute_W_times_basis(Psi)
+        
+        # 3. 计算中间矩阵 A = Psi^T * N = Psi^T * W * Phi
+        # Shape: (r, 2N) @ (2N, r) -> (r, r)
+        A = Psi.T @ N_mat
+        
+        # 4. 求逆 A_inv
+        A_inv = scipy.linalg.inv(A)
+        
+        # 5. 组装 P = Phi * A_inv
+        P_mat = Phi @ A_inv
+        
+        # 6. 验证恒等式 M^T P = I
+        Check = M_mat.T @ P_mat
+        diff = np.linalg.norm(Check - np.eye(Check.shape[0]))
+        print(f"Identity Check (M.T @ P = I), Error: {diff:.4e}, Relative Error: {diff / np.linalg.norm(np.eye(Check.shape[0])):.4e}")
+        
+        return M_mat, P_mat
+
     def shift_x_input_3D(self, u, c):
         """Shift the 3D field u(x, y, z) by amount c in x direction to get u(x - c, y, z).
         """

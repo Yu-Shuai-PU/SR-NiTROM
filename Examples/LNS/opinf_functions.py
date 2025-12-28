@@ -155,6 +155,10 @@ def compute_indices(c_ls=[], c=0, idx=5, r=5, order=0):
 #     return Phi, cumulative_energy_proportion
 
 def perform_POD(pool, opt_obj, r, fom):
+    
+    """
+    Verified. The POD modes are orthogonal under the weighted inner product defined in fom.inner_product_3D.
+    """
 
     X = np.ascontiguousarray(opt_obj.X_fitted, dtype=np.double)
     N_space = X.shape[1]

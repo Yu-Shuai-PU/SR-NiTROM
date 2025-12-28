@@ -282,6 +282,8 @@ class LNS:
         Output:
             C -- Correlation matrix with shape (M_snapshots, M_snapshots)
                  where C[i, j] = inner_product_3D(snapshot[i], snapshot[j])
+                 
+        ## verified, this function produces identical results as the double loop version to compute the C matrix C_ij = <snapshot[i], snapshot[j]>_{inner product 3D} but is much faster.
         """
         
         # 1. Shape & Dimensions
@@ -448,7 +450,7 @@ class LNS:
         
         # 3. 应用导数的伴随 (D1^T)
         # t1 是导数项的贡献，通过 D1.T 映射回 v
-        v_from_deriv = np.einsum('jk, mikl -> mikl', self.D1.T, t1)
+        v_from_deriv = np.einsum('kj, mijl -> mikl', self.D1.T, t1)
         
         # 汇总 v 和 eta
         v_hat_w = v_from_deriv + t2
@@ -487,7 +489,7 @@ class LNS:
         # 3. 转置回 (2N, r)
         return W_Basis_T.T  # shape: (2N, M)
     
-    def generate_weighted_projection_matrices(self, Phi, Psi=None):
+    def generate_weighted_projection_bases(self, Phi, Psi=None):
         """
         生成投影矩阵 M 和重构矩阵 P。
         

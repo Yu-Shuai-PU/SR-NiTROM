@@ -679,7 +679,7 @@ class LNS:
         
         return np.concatenate((linear_v.ravel(), linear_eta.ravel()))
     
-    def assemble_petrov_galerkin_tensors(self, PhiF, Psi):
+    def assemble_petrov_galerkin_tensors(self, Psi, PhiF):
         """Assemble the Petrov-Galerkin projection matrices."""
         
         r = Psi.shape[1]
@@ -692,12 +692,12 @@ class LNS:
         M_mat = Psi.T @ PhiF_dx
         
         for i in range(r):
-            linear_v = self.linear(PhiF[:, i])[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
-            linear_eta = self.linear(PhiF[:, i])[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
-            PhiF_dx_v = PhiF_dx[0 : self.nx * self.ny * self.nz, i].reshape((self.nx, self.ny, self.nz))
-            PhiF_dx_eta = PhiF_dx[self.nx * self.ny * self.nz : , i].reshape((self.nx, self.ny, self.nz))
-            p_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, linear_v, linear_eta)
-            s_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, PhiF_dx_v, PhiF_dx_eta)
+            linear_v_i = self.linear(PhiF[:, i])[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
+            linear_eta_i = self.linear(PhiF[:, i])[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
+            PhiF_dx_v_i = PhiF_dx[0 : self.nx * self.ny * self.nz, i].reshape((self.nx, self.ny, self.nz))
+            PhiF_dx_eta_i = PhiF_dx[self.nx * self.ny * self.nz : , i].reshape((self.nx, self.ny, self.nz))
+            p_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, linear_v_i, linear_eta_i)
+            s_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, PhiF_dx_v_i, PhiF_dx_eta_i)
             for j in range(r):
                 A_mat[i, j] = np.dot(Psi[:, i], self.linear(PhiF[:, j]))
 

@@ -275,6 +275,9 @@ class optimization_objects:
         self.outer_product = kwargs.get('outer_product_method',None)
         self.shift         = kwargs.get('spatial_shift_method',None)
         
+        self.state_mag_threshold = 1e4
+        self.cdot_denom_threshold = 1e-15
+        
     def generate_einsum_subscripts_rhs_poly(self):
         """
             Generates the indices for the einsum evaluation of the 
@@ -314,11 +317,11 @@ class optimization_objects:
         """
         z = zc[:-1]
 
-        if np.linalg.norm(z) >= 1e4:
+        if np.linalg.norm(z) >= self.state_mag_threshold:
             dzdt = 0.0*z
             dcdt = 0.0
             # raise ValueError ("The norm of the state vector is too large!")
-            print("Warning: The norm of the state vector is too large!")
+            print("Warning: The norm of the state vector is too large! Modified RHS to zero.")
         else:
             f = kwargs.get('forcing_interp',None)
             f = f(t) if f != None else np.zeros(len(z))
@@ -328,10 +331,11 @@ class optimization_objects:
             cdot_denom_linear = operators[-2]
             udx_linear = operators[-1]
             cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
+            print("time = ", t, "cdot_denom", cdot_denom)
             # print("cdot_denom:", cdot_denom)
-            if abs(cdot_denom) < 1e-4:
+            if abs(cdot_denom) < self.cdot_denom_threshold:
                 # raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
-                print("Warning: Denominator in reconstruction equation of the shifting speed is too close to zero!")
+                print("Warning: Denominator in reconstruction equation of the shifting speed is too close to zero! Modified shift speed to zero.")
                 dcdt = 0.0
                 # cdot_denom = 1e-2 * np.sign(cdot_denom)
                 return np.hstack((dzdt, dcdt))
@@ -350,9 +354,6 @@ class optimization_objects:
                     
                 dzdt += (cdot_numer/cdot_denom) * udx
                 dcdt = cdot_numer/cdot_denom
-
-            # if abs(dcdt) > 1e4:
-            #     raise ValueError ("The shift speed is too large!")
                 
         return np.hstack((dzdt, dcdt))
     
@@ -367,12 +368,12 @@ class optimization_objects:
             Optional keyword arguments:
                 'forcing_interp':   a scipy interpolator f that gives us a forcing f(t)
         """
+        print(f"evaluate_rom_unreduced_rhs called at time t = {t}, z_magnitude = {np.linalg.norm(z)}")
 
-        if np.linalg.norm(z) >= 1e4:
+        if np.linalg.norm(z) >= self.state_mag_threshold:
             dzdt = 0.0*z
-            dcdt = 0.0
             # raise ValueError ("The norm of the state vector is too large!")
-            print("Warning: The norm of the state vector is too large!")
+            print("Warning: The norm of the state vector is too large! Modified RHS to zero.")
         else:
             f = kwargs.get('forcing_interp',None)
             f = f(t) if f != None else np.zeros(len(z))
@@ -392,9 +393,10 @@ class optimization_objects:
         """
         cdot_denom_linear = operators[-2]
         cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
-        if abs(cdot_denom) < 1e-4:
+        print("cdot_denom:", cdot_denom)
+        if abs(cdot_denom) < self.cdot_denom_threshold:
             # raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
-            print("Warning: Denominator in reconstruction equation of the shifting speed is too close to zero!")
+            print("Warning: Denominator in reconstruction equation of the shifting speed is too close to zero! Modified shift speed to zero.")
             return 0.0
         else:
             cdot_numer = 0.0
@@ -403,7 +405,8 @@ class optimization_objects:
                 equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
                 operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
                 cdot_numer -= np.einsum(equation,*operands)
-
+                
+            print("cdot:", cdot_numer/cdot_denom)
             return cdot_numer/cdot_denom
     
     def compute_shift_speed_numer(self, z, operators):
@@ -425,10 +428,10 @@ class optimization_objects:
         """
         cdot_denom_linear = operators[-2]
         cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
-        if abs(cdot_denom) < 1e-4:
+        if abs(cdot_denom) < self.cdot_denom_threshold:
             # raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
-            print("Warning: Denominator in reconstruction equation of the shifting speed is too close to zero!")
-            return 1e-4 * np.sign(cdot_denom)
+            print("Warning: Denominator in reconstruction equation of the shifting speed is too close to zero! Modified denominator to small value.")
+            return self.cdot_denom_threshold * np.sign(cdot_denom)
         else:
             return cdot_denom
 
@@ -442,7 +445,8 @@ class optimization_objects:
             operators:  (A, B, p, Q, s, M)
         """
 
-        if np.linalg.norm(xi) >= 1e4:
+        if np.linalg.norm(xi) >= self.state_mag_threshold:
+            print("Warning: The norm of the adjoint state vector is too large! Modified RHS of the adjoint RHS to zero.")
             dxidt = 0.0*xi
         else:
             dxidt = 0.0*xi
@@ -485,7 +489,8 @@ class optimization_objects:
                   = d/dz (- (p^Tz + a^TQz + ...) / (s^Tz) )
         """
 
-        if np.linalg.norm(z) >= 1e4:
+        if np.linalg.norm(z) >= self.state_mag_threshold:
+            print("Warning: The norm of the state vector is too large! Modified RHS of the adjoint shifting speed to zero.")
             dhdzT = 0.0*z
         else:
             

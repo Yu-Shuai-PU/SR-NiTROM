@@ -376,6 +376,8 @@ class LNS:
         
         # [修改点 1] R_diag_eta: 改为 (nx, ny, nz) 以匹配物理网格布局，方便直接广播
         self.R_diag_eta = np.zeros((self.nx, self.ny, self.nz), dtype=np.float64)
+        self.inv_R_blocks_v = np.zeros((self.nx, self.nz, self.ny, self.ny), dtype=np.float64)
+        self.inv_R_diag_eta = np.zeros((self.nx, self.ny, self.nz), dtype=np.float64)
         
         w_y = self.Clenshaw_Curtis_weights.flatten()
         fact_xz = self.inner_product_factor.reshape(self.nx, self.nz)
@@ -397,24 +399,31 @@ class LNS:
                 # 加一点 jitter 防止数值误差导致的非正定
                 try:
                     R = scipy.linalg.cholesky(M_v + 1e-12 * np.eye(self.ny), lower=False)
+                    R_inv = scipy.linalg.inv(R)
                 except np.linalg.LinAlgError:
                     R = np.zeros((self.ny, self.ny)) # 处理奇异模态
+                    R_inv = np.zeros((self.ny, self.ny))
                 
                 self.R_blocks_v[i, k, :, :] = R
+                self.inv_R_blocks_v[i, k, :, :] = R_inv
                 
                 # [修改点 2] Eta 分量赋值: 也就是 sqrt(S)
-                # 注意现在的维度是 [x, y, z]，对应 [i, :, k]
-                self.R_diag_eta[i, :, k] = np.sqrt(S_val)
+                val = np.sqrt(S_val)
+                self.R_diag_eta[i, :, k] = val
+                self.inv_R_diag_eta[i, :, k] = np.divide(1.0, val, out=np.zeros_like(val), where=val!=0)
 
         # Nyquist 模态置零 (保持和你原逻辑一致)
         if (self.nx % 2) == 0: 
             self.R_blocks_v[0, :, :, :] = 0
             self.R_diag_eta[0, :, :] = 0 # x=0, all y, all z
+            self.inv_R_blocks_v[0, :, :, :] = 0
+            self.inv_R_diag_eta[0, :, :] = 0
             
         if (self.nz % 2) == 0: 
             self.R_blocks_v[:, 0, :, :] = 0
-            # [修改点 3] z 是最后一个维度，所以是 [:, :, 0]
             self.R_diag_eta[:, :, 0] = 0
+            self.inv_R_blocks_v[:, 0, :, :] = 0
+            self.inv_R_diag_eta[:, :, 0] = 0
         
     def apply_sqrt_inner_product_weight(self, q_vec):
         """
@@ -506,69 +515,105 @@ class LNS:
         res = np.concatenate([q_v_out.reshape(M, -1), q_eta_out.reshape(M, -1)], axis=1).T
         return res.squeeze() if is_1d else res
     
-    def apply_inner_product_weight(self, Basis):
+    def apply_inner_product_weight(self, q_vec):
         """
         计算 W * Basis = R^T * (R * Basis)
         """
         # 1. v -> Rv
-        Rv = self.apply_sqrt_inner_product_weight(Basis)
+        Rv = self.apply_sqrt_inner_product_weight(q_vec)
         
         # 2. Rv -> R^T Rv
         Wv = self.apply_sqrt_inner_product_weight_transpose(Rv)
         
         return Wv
     
-    def generate_weighted_bases(self, Phi, Psi=None):
+    def apply_inv_sqrt_inner_product_weight(self, q_vec):
         """
-        生成投影矩阵 M 和重构矩阵 P。
-        
-        Math:
-            N = W * Phi
-            M = W * Psi
-            P = Phi * (Psi^T * N)^-1
-            
-        Resulting Projection:
-            a = M.T @ q
-            q = P @ a
-            
-        Constraint:
-            M.T @ P = I
-        
-        Input:
-            Phi -- 重构基 (2N, r)
-            Psi -- 投影基 (2N, r). 如果为 None，默认 Psi=Phi (Galerkin)
-        Output:
-            M -- 投影矩阵的转置部分 (2N, r)
-            P -- 重构矩阵 (2N, r)
+        计算 R^-1 * q_vec
+        Input: q_vec (2N, M) -- 特征空间变量
+        Output: (2N, M) -- 物理空间变量
         """
-        if Psi is None:
-            Psi = Phi
-            print("Generating Galerkin Matrices (Psi=Phi)...")
-        else:
-            print("Generating Petrov-Galerkin Matrices...")
-            
-        # 1. 计算 N = W * Phi
-        N_mat = self.apply_inner_product_weight(Phi)
+        is_1d = (q_vec.ndim == 1)
+        if is_1d: q_vec = q_vec[:, np.newaxis]
+        M = q_vec.shape[1]
+        num_grid = self.nx * self.ny * self.nz
         
-        # 2. 计算 M = W * Psi
-        M_mat = self.apply_inner_product_weight(Psi)
+        # 1. 变换到谱空间
+        q_v = q_vec[:num_grid, :].T.reshape(M, self.nx, self.ny, self.nz)
+        q_eta = q_vec[num_grid:, :].T.reshape(M, self.nx, self.ny, self.nz)
         
-        # 3. 计算中间矩阵 A = Psi^T * N = Psi^T * W * Phi
-        # Shape: (r, 2N) @ (2N, r) -> (r, r)
-        A = Psi.T @ N_mat
+        # [Critical] 逆变换的缩放: FFT * sqrt(N)
+        # 以抵消前向变换中的 / sqrt(N)
+        scale_inv = np.sqrt(self.nx * self.nz)
         
-        # 4. 求逆 A_inv
-        A_inv = scipy.linalg.inv(A)
+        v_hat = np.fft.fftshift(np.fft.fft2(q_v, axes=(1, 3)), axes=(1, 3)) * scale_inv
+        eta_hat = np.fft.fftshift(np.fft.fft2(q_eta, axes=(1, 3)), axes=(1, 3)) * scale_inv
         
-        # 5. 组装 P = Phi * A_inv
-        P_mat = Phi @ A_inv
+        # 2. 应用 R^-1 矩阵
+        v_hat_perm = v_hat.transpose(0, 1, 3, 2)
         
-        # 6. 验证恒等式 M^T P = I
-        Check = M_mat.T @ P_mat
-        diff = np.linalg.norm(Check - np.eye(Check.shape[0]))
-        print(f"Identity Check (M.T @ P = I), Error: {diff:.4e}, Relative Error: {diff / np.linalg.norm(np.eye(Check.shape[0])):.4e}")
+        # 使用 inv_R_blocks_v
+        # 这里的 einsum 和 apply_sqrt... 完全一样，只是换了矩阵
+        v_hat = np.einsum('ikab, mikb -> mika', self.inv_R_blocks_v, v_hat_perm)
+        v_hat = v_hat.transpose(0, 1, 3, 2)
         
-        return M_mat, P_mat
+        # 使用 inv_R_diag_eta
+        eta_hat = eta_hat * self.inv_R_diag_eta[np.newaxis, :, :, :]
+        
+        # 3. IFFT 回物理空间
+        q_v_out = np.fft.ifft2(np.fft.ifftshift(v_hat, axes=(1,3)), axes=(1,3)).real
+        q_eta_out = np.fft.ifft2(np.fft.ifftshift(eta_hat, axes=(1,3)), axes=(1,3)).real
+        
+        res = np.concatenate([q_v_out.reshape(M, -1), q_eta_out.reshape(M, -1)], axis=1).T
+        return res.squeeze() if is_1d else res
+    
+    def apply_inv_sqrt_inner_product_weight_transpose(self, q_vec):
+        """
+        计算 (R^-1)^T * q_vec
+        通常用于对梯度进行预处理 (Preconditioning)
+        """
+        is_1d = (q_vec.ndim == 1)
+        if is_1d: q_vec = q_vec[:, np.newaxis]
+        M = q_vec.shape[1]
+        num_grid = self.nx * self.ny * self.nz
+        
+        # 1. 变换到谱空间
+        q_v = q_vec[:num_grid, :].T.reshape(M, self.nx, self.ny, self.nz)
+        q_eta = q_vec[num_grid:, :].T.reshape(M, self.nx, self.ny, self.nz)
+        
+        # [Critical] 逆变换缩放
+        scale_inv = np.sqrt(self.nx * self.nz)
+        v_hat = np.fft.fftshift(np.fft.fft2(q_v, axes=(1, 3)), axes=(1, 3)) * scale_inv
+        eta_hat = np.fft.fftshift(np.fft.fft2(q_eta, axes=(1, 3)), axes=(1, 3)) * scale_inv
+        
+        # 2. 应用 (R^-1)^T
+        v_hat_perm = v_hat.transpose(0, 1, 3, 2)
+        
+        # 使用 inv_R_blocks_v，但是用转置的 einsum 索引
+        # 'ikab, mika -> mikb' 表示对 inv_R 的第一个维度(行)求和，即左乘 inv_R.T
+        v_hat = np.einsum('ikab, mika -> mikb', self.inv_R_blocks_v, v_hat_perm)
+        v_hat = v_hat.transpose(0, 1, 3, 2)
+        
+        # 对角阵转置不变
+        eta_hat = eta_hat * self.inv_R_diag_eta[np.newaxis, :, :, :]
+        
+        # 3. IFFT
+        q_v_out = np.fft.ifft2(np.fft.ifftshift(v_hat, axes=(1,3)), axes=(1,3)).real
+        q_eta_out = np.fft.ifft2(np.fft.ifftshift(eta_hat, axes=(1,3)), axes=(1,3)).real
+        
+        res = np.concatenate([q_v_out.reshape(M, -1), q_eta_out.reshape(M, -1)], axis=1).T
+        return res.squeeze() if is_1d else res
+    
+    def apply_inv_inner_product_weight(self, q_vec):
+        """
+        计算 W^-1 * q_vec = (R^T R)^-1 * q_vec = R^-1 R^-T * q_vec
+        """
+        # 1. 计算 R^-T * q_vec
+        R_T_inv_q = self.apply_inv_sqrt_inner_product_weight_transpose(q_vec)
+        # 2. 计算 R^-1 * (R^-T * q_vec)
+        W_inv_q = self.apply_inv_sqrt_inner_product_weight(R_T_inv_q)
+        
+        return W_inv_q
 
     def shift_x_input_3D(self, u, c):
         """Shift the 3D field u(x, y, z) by amount c in x direction to get u(x - c, y, z).
@@ -710,6 +755,33 @@ class LNS:
     
     def assemble_petrov_galerkin_tensors(self, Psi, PhiF):
         """Assemble the Petrov-Galerkin projection matrices."""
+        
+        r = Psi.shape[1]
+        A_mat = np.zeros((r, r))
+        p_vec = np.zeros(r)
+        s_vec = np.zeros(r)
+
+        PhiF_dx = self.diff_x_basis(PhiF, order=1)
+        
+        M_mat = Psi.T @ PhiF_dx
+        
+        for i in range(r):
+            linear_v_i = self.linear(PhiF[:, i])[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
+            linear_eta_i = self.linear(PhiF[:, i])[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
+            PhiF_dx_v_i = PhiF_dx[0 : self.nx * self.ny * self.nz, i].reshape((self.nx, self.ny, self.nz))
+            PhiF_dx_eta_i = PhiF_dx[self.nx * self.ny * self.nz : , i].reshape((self.nx, self.ny, self.nz))
+            p_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, linear_v_i, linear_eta_i)
+            s_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, PhiF_dx_v_i, PhiF_dx_eta_i)
+            for j in range(r):
+                A_mat[i, j] = np.dot(Psi[:, i], self.linear(PhiF[:, j]))
+
+        return (A_mat, p_vec, s_vec, M_mat)
+    
+    def assemble_weighted_petrov_galerkin_tensors(self, Psi, PhiF):
+        """Assemble the coefficients of reduced-order dynamics for the weighted mode amplitude Ra via Petrov-Galerkin projection.
+        Notice that x-derivative is commutative with the weight matrix R and W = R^T R,
+        however, the linear dynamics is not commutative with R in general because it involves y-derivatives and multiplication by base flow U(y).
+        """
         
         r = Psi.shape[1]
         A_mat = np.zeros((r, r))

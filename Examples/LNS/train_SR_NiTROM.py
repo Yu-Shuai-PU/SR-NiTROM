@@ -125,9 +125,13 @@ opt_obj = classes.optimization_objects(*opt_obj_inputs)
 Phi_POD, cumulative_energy_proportion = opinf_fun.perform_POD(pool,opt_obj,r,fom)
 Psi_POD = Phi_POD.copy() # Here, <Phi_POD, Phi_POD>_inner_product_3D = I, where inner_product_3D is the customized inner product defined in fom_class_LNS.py
 
-Psi_POD_weighted, PhiF_POD_weighted = fom.generate_weighted_projection_bases(Phi_POD, Psi_POD) # Psi_POD_weighted = W*Psi_POD, PhiF_POD_weighted = Phi_POD(Psi_POD.T @ W @ Phi_POD)^{-1}
+# To convert our customized inner product to standard L2 inner product, <q, q>_E = <Rq, Rq>_L2, we need to weight the projection bases:
 
-print(f"relative difference between PhiF_POD and Phi_POD: {np.linalg.norm(PhiF_POD_weighted - Phi_POD) / np.linalg.norm(Phi_POD):.4e}") # should be very small
+Psi_POD_weighted  = fom.apply_sqrt_inner_product_weight(Psi_POD) # R * Psi_POD
+Phi_POD_weighted  = Psi_POD_weighted.copy() # R * Phi_POD
+PhiF_POD_weighted = Phi_POD_weighted @ scipy.linalg.inv(Psi_POD_weighted.T @ Phi_POD_weighted) # PhiF_POD = Phi_POD (Psi_POD.T * W * Phi_POD)^{-1}, W = R^T * R
+
+print(f"relative difference between PhiF_POD and Phi_POD: {np.linalg.norm(PhiF_POD_weighted - Phi_POD_weighted) / np.linalg.norm(Phi_POD_weighted):.4e}") # should be very small, yes!
 ### Test the SR-Galerkin ROM simulation accuracy
 
 Tensors_POD = fom.assemble_petrov_galerkin_tensors(Psi_POD_weighted, PhiF_POD_weighted) # A, p, s, M
@@ -137,8 +141,8 @@ fname_Psi_POD = data_path + "Psi_POD.npy"
 np.save(fname_Psi_POD,Psi_POD)
 fname_Psi_POD_weighted = data_path + "Psi_POD_weighted.npy"
 np.save(fname_Psi_POD_weighted,Psi_POD_weighted)
-fname_PhiF_POD_weighted = data_path + "PhiF_POD_weighted.npy"
-np.save(fname_PhiF_POD_weighted,PhiF_POD_weighted)
+fname_PhiF_POD_weighted = data_path + "Phi_POD_weighted.npy"
+np.save(fname_PhiF_POD_weighted,Phi_POD_weighted)
 fname_Tensors_POD = data_path + "Tensors_POD_Galerkin.npz"
 np.savez(fname_Tensors_POD, *Tensors_POD)
 disturbance_kinetic_energy_FOM = np.zeros(opt_obj.n_snapshots)
@@ -152,7 +156,7 @@ num_modes_to_plot = 10
 for k in range(pool.my_n_traj):
     traj_idx = k + pool.disps[pool.rank]
     print("Preparing SR-Galerkin simulation %d/%d"%(traj_idx,pool.n_traj))
-    traj_SRG_init = Psi_POD_weighted.T@opt_obj.X_fitted[k,:,0].reshape(-1)
+    traj_SRG_init = Psi_POD_weighted.T@fom.apply_sqrt_inner_product_weight(opt_obj.X_fitted[k,:,0].reshape(-1))
     shifting_amount_SRG_init = opt_obj.c[k,0]
 
     sol_SRG = solve_ivp(opt_obj.evaluate_rom_rhs,
@@ -162,7 +166,7 @@ for k in range(pool.my_n_traj):
                     t_eval=opt_obj.time,
                     args=(np.zeros(r),) + Tensors_POD).y
     
-    traj_fitted_SRG = PhiF_POD_weighted@sol_SRG[:-1,:]
+    traj_fitted_SRG = fom.apply_inv_sqrt_inner_product_weight(PhiF_POD_weighted@sol_SRG[:-1,:])
     traj_fitted_SRG_v = traj_fitted_SRG[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
     traj_fitted_SRG_eta = traj_fitted_SRG[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
     shifting_amount_SRG = sol_SRG[-1,:]
@@ -197,7 +201,7 @@ for k in range(pool.my_n_traj):
     shifting_amount_FOM = opt_obj.c[k,:]
     shifting_speed_FOM = opt_obj.cdot[k,:]
     traj_fitted_FOM = opt_obj.X_fitted[k,:,:]
-    traj_fitted_proj = Psi_POD_weighted.T @ traj_fitted_FOM
+    traj_fitted_proj = Psi_POD_weighted.T @ fom.apply_sqrt_inner_product_weight(traj_fitted_FOM)
     
     ### plotting
     plot_ROM_vs_FOM(opt_obj, traj_idx, fig_path, relative_error, relative_error_fitted,

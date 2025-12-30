@@ -123,7 +123,7 @@ class LNS:
         
         self.Clenshaw_Curtis_weights = Clenshaw_Curtis_weights(y)
         self.linear_mat = self.assemble_fom_linear_operator()
-        self._precompute_spectral_R()
+        self.Cholesky_inner_product_weight()
         
     def apply_BC(self, D1):
         """Apply boundary conditions to the Chebyshev differentiation matrix D1.
@@ -273,18 +273,6 @@ class LNS:
 
         return np.real(final_result)
     
-    def inner_product_L2(self, q1_vec, q2_vec):
-        
-        """Compute the inner product of two system's states q1_vec, q2_vec (usually, <L * q1_vec, L * q2_vec>_L2 = <q1_vec, q2_vec>_E).
-        
-        Input: 
-        q1_vec -- vectorized spatial function with shape (2 * nx * ny * nz,)
-        q2_vec -- vectorized spatial function with shape (2 * nx * ny * nz,)
-        
-        Output: the disturbance kinetic energy
-        """
-        return np.dot(q1_vec, q2_vec)
-    
     def compute_snapshot_correlation_matrix(self, q_vec_snapshots):
         """
         Efficiently compute the correlation matrix C for a batch of snapshots using vectorized operations.
@@ -375,124 +363,11 @@ class LNS:
         
         return np.real(C)
     
-    # def _get_weighted_features(self, q_vec):
-    #     """
-    #     [Private] 前向特征映射: Y = L * q
-    #     将物理空间状态映射到加权特征空间，使得 <q1, q2>_W = <Y1, Y2>_Euclidean
-        
-    #     Input: q_vec -- shape (2N, M)
-    #     Output: Y -- shape (M, features = 3N)
-    #     """
-    #     # 1. 输入处理 (2N, M) -> (M, 2N) 以便 reshape
-    #     if q_vec.ndim == 1:
-    #         q_vec = q_vec[:, np.newaxis]
-        
-    #     M = q_vec.shape[1]
-    #     nx, ny, nz = self.nx, self.ny, self.nz
-    #     num_grid = nx * ny * nz
-        
-    #     # 2. 拆分 v 和 eta
-    #     q_v = q_vec[:num_grid, :].T.reshape(M, nx, ny, nz)
-    #     q_eta = q_vec[num_grid:, :].T.reshape(M, nx, ny, nz)
-        
-    #     # 3. 批量 FFT (复刻 FFT_2D 逻辑，包含归一化)
-    #     v_hat = np.fft.fftshift(np.fft.fft2(q_v, axes=(1, 3)), axes=(1, 3)) / (nx * nz)
-    #     eta_hat = np.fft.fftshift(np.fft.fft2(q_eta, axes=(1, 3)), axes=(1, 3)) / (nx * nz)
-        
-    #     # Nyquist 模态置零
-    #     if (nx % 2) == 0: v_hat[:, 0, :, :] = 0; eta_hat[:, 0, :, :] = 0
-    #     if (nz % 2) == 0: v_hat[:, :, :, 0] = 0; eta_hat[:, :, :, 0] = 0
-            
-    #     # 4. 计算导数 (D1 @ v)
-    #     dv_dy_hat = np.einsum('jk, mikl -> mijl', self.D1, v_hat)
-        
-    #     # 5. 准备权重 (Broadcasting)
-    #     w_exp = self.Clenshaw_Curtis_weights.reshape(1, 1, ny, 1)
-    #     fact_exp = self.inner_product_factor.reshape(1, nx, 1, nz)
-    #     ksq_exp = self.k_sq.reshape(1, nx, 1, nz)
-        
-    #     # 综合缩放因子 sqrt(w * factor)
-    #     sqrt_S = np.sqrt(w_exp * fact_exp)
-        
-    #     # 6. 构造特征分量 Y
-    #     # Term 1: dv/dy
-    #     f1 = dv_dy_hat * sqrt_S
-    #     # Term 2: v * |k|
-    #     f2 = v_hat * np.sqrt(ksq_exp) * sqrt_S
-    #     # Term 3: eta
-    #     f3 = eta_hat * sqrt_S
-        
-    #     # 7. 拼接拉直
-    #     Y = np.concatenate([
-    #         f1.reshape(M, -1),
-    #         f2.reshape(M, -1),
-    #         f3.reshape(M, -1)
-    #     ], axis=1)
-        
-    #     return Y
-
-    # def _apply_adjoint_L(self, Y_features):
-    #     """
-    #     [Private] 伴随特征映射: q_w = L^H * Y
-    #     这是 _get_weighted_features 的逆向过程，用于计算 W * q
-    #     Input: Y_features (M, features = 3N)
-    #     Output: q_out (M, 2N)
-    #     """
-    #     M = Y_features.shape[0]
-    #     nx, ny, nz = self.nx, self.ny, self.nz
-    #     num_grid = nx * ny * nz
-        
-    #     # 1. 拆分特征
-    #     f1_flat = Y_features[:, 0:num_grid]
-    #     f2_flat = Y_features[:, num_grid:2*num_grid]
-    #     f3_flat = Y_features[:, 2*num_grid:3*num_grid]
-        
-    #     f1 = f1_flat.reshape(M, nx, ny, nz)
-    #     f2 = f2_flat.reshape(M, nx, ny, nz)
-    #     f3 = f3_flat.reshape(M, nx, ny, nz)
-        
-    #     # 2. 应用权重的伴随 (即权重本身)
-    #     w_exp = self.Clenshaw_Curtis_weights.reshape(1, 1, ny, 1)
-    #     fact_exp = self.inner_product_factor.reshape(1, nx, 1, nz)
-    #     ksq_exp = self.k_sq.reshape(1, nx, 1, nz)
-    #     sqrt_S = np.sqrt(w_exp * fact_exp)
-        
-    #     t1 = f1 * sqrt_S
-    #     t2 = f2 * np.sqrt(ksq_exp) * sqrt_S
-    #     t3 = f3 * sqrt_S
-        
-    #     # 3. 应用导数的伴随 (D1^T)
-    #     # t1 是导数项的贡献，通过 D1.T 映射回 v
-    #     v_from_deriv = np.einsum('kj, mijl -> mikl', self.D1.T, t1)
-        
-    #     # 汇总 v 和 eta
-    #     v_hat_w = v_from_deriv + t2
-    #     eta_hat_w = t3
-        
-    #     # 4. 应用 FFT 的伴随 (IFFT)
-    #     # 对应前向的 / (Nx*Nz)，直接用 ifft 即可
-    #     q_v = np.fft.ifft2(np.fft.ifftshift(v_hat_w, axes=(1,3)), axes=(1,3))
-    #     q_eta = np.fft.ifft2(np.fft.ifftshift(eta_hat_w, axes=(1,3)), axes=(1,3))
-        
-    #     # 取实部 (物理空间权重矩阵 W 是实对称的)
-    #     q_v = np.real(q_v)
-    #     q_eta = np.real(q_eta)
-        
-    #     # 5. 拼接输出 (M, 2N)
-    #     q_out = np.concatenate([
-    #         q_v.reshape(M, -1),
-    #         q_eta.reshape(M, -1)
-    #     ], axis=1)
-        
-    #     return q_out # shape: (M, 2N)
-    
-    def _precompute_spectral_R(self):
+    def Cholesky_inner_product_weight(self):
         """
-        [Private] 预计算谱空间的 Cholesky 因子 R。
-        使得对于每个模态: M_v = R_v^T @ R_v
-        这样可以将 W 分解为 R^T @ R
+        Precompute the Cholesky factors for the inner product weight operator W, such that W = R^T R, where W is 2N-by-2N symmetric positive definite, and R is a 2N-by-2N invertible matrix.
         """
-        print("Pre-computing spectral Cholesky factors (R matrices)...")
+        # print("Pre-computing spectral Cholesky factors (R matrices)...")
         
         # 初始化存储容器
         # R_blocks_v: (nx, nz, ny, ny) 
@@ -541,7 +416,7 @@ class LNS:
             # [修改点 3] z 是最后一个维度，所以是 [:, :, 0]
             self.R_diag_eta[:, :, 0] = 0
         
-    def _apply_R(self, q_vec):
+    def apply_sqrt_inner_product_weight(self, q_vec):
         """
         计算 u = R * q
         物理意义：变换后的向量 u，满足 ||u||_2^2 = ||q||_W^2
@@ -586,22 +461,22 @@ class LNS:
         res = np.concatenate([q_v_out.reshape(M, -1), q_eta_out.reshape(M, -1)], axis=1).T
         return res.squeeze() if is_1d else res
 
-    def _apply_R_transpose(self, q_R_vec):
+    def apply_sqrt_inner_product_weight_transpose(self, q_vec):
         """
-        计算 w = R^T * u
+        计算 w = R^T * q
         通常用于组合计算 W * q = R^T * (R * q)
-        Input: q_R_vec (2N, M) -- 这通常是 _apply_R 的输出
+        Input: q_vec (2N, M) -- 这通常是 _apply_R 的输出
         Output: q_out (2N, M)
         """
         # 1. 输入处理
-        is_1d = (q_R_vec.ndim == 1)
-        if is_1d: q_R_vec = q_R_vec[:, np.newaxis]
-        M = q_R_vec.shape[1]
+        is_1d = (q_vec.ndim == 1)
+        if is_1d: q_vec = q_vec[:, np.newaxis]
+        M = q_vec.shape[1]
         num_grid = self.nx * self.ny * self.nz
 
         # 2. 变换到谱空间
-        q_v = q_R_vec[:num_grid, :].T.reshape(M, self.nx, self.ny, self.nz)
-        q_eta = q_R_vec[num_grid:, :].T.reshape(M, self.nx, self.ny, self.nz)
+        q_v = q_vec[:num_grid, :].T.reshape(M, self.nx, self.ny, self.nz)
+        q_eta = q_vec[num_grid:, :].T.reshape(M, self.nx, self.ny, self.nz)
         
         # FFT
         v_hat = np.fft.fftshift(np.fft.fft2(q_v, axes=(1, 3)), axes=(1, 3)) / np.sqrt((self.nx * self.nz))
@@ -630,50 +505,20 @@ class LNS:
         # 5. 拼接
         res = np.concatenate([q_v_out.reshape(M, -1), q_eta_out.reshape(M, -1)], axis=1).T
         return res.squeeze() if is_1d else res
-
-    # def compute_W_times_basis(self, Basis):
-    #     """
-    #     计算 W * Basis。这是生成 M 和 N 的核心函数。
-    #     Input:  Basis (2N, r)
-    #     Output: W_Basis (2N, r)
-    #     """
-    #     # 1. Forward: Y = L * Basis
-    #     # 输入转置一下以匹配 helper 的预期 (r, 2N)
-    #     Y = self._get_weighted_features(Basis) # shape: (M = n_snapshots, features = 3N)
-    #     # 2. Adjoint: Result = L^H * Y
-    #     # 输出是 (r, 2N)，即 (W * Basis)^T
-    #     W_Basis_T = self._apply_adjoint_L(Y) # shape: (M, 2N)
-        
-    #     # 3. 转置回 (2N, r)
-    #     return W_Basis_T.T  # shape: (2N, M)
     
-    def compute_W_times_basis(self, Basis):
+    def apply_inner_product_weight(self, Basis):
         """
         计算 W * Basis = R^T * (R * Basis)
         """
         # 1. v -> Rv
-        Rv = self._apply_R(Basis)
+        Rv = self.apply_sqrt_inner_product_weight(Basis)
         
         # 2. Rv -> R^T Rv
-        Wv = self._apply_R_transpose(Rv)
+        Wv = self.apply_sqrt_inner_product_weight_transpose(Rv)
         
         return Wv
     
-    # def weighted_by_L(self, q_vec):
-    #     """
-    #     计算 L * q_vec。
-        
-    #     Input:
-    #         q_vec -- vectorized spatial function with shape (2N, n_snapshots)
-    #     Output:
-    #         W_q_vec -- weighted vectorized spatial function with shape (3N, n_snapshots)
-    #     """
-    #     Lq_vec = self._get_weighted_features(q_vec).T  # shape: (3N, n_snapshots)
-    #     return np.concatenate([Lq_vec.real, Lq_vec.imag], axis=0).squeeze()  # 转换为实数形式 (6N, n_snapshots)
-        
-    #     # return (self._get_weighted_features(q_vec).T).squeeze()  # 转置回 (3N, n_snapshots)
-    
-    def generate_weighted_projection_bases(self, Phi, Psi=None):
+    def generate_weighted_bases(self, Phi, Psi=None):
         """
         生成投影矩阵 M 和重构矩阵 P。
         
@@ -703,10 +548,10 @@ class LNS:
             print("Generating Petrov-Galerkin Matrices...")
             
         # 1. 计算 N = W * Phi
-        N_mat = self.compute_W_times_basis(Phi)
+        N_mat = self.apply_inner_product_weight(Phi)
         
         # 2. 计算 M = W * Psi
-        M_mat = self.compute_W_times_basis(Psi)
+        M_mat = self.apply_inner_product_weight(Psi)
         
         # 3. 计算中间矩阵 A = Psi^T * N = Psi^T * W * Phi
         # Shape: (r, 2N) @ (2N, r) -> (r, r)

@@ -135,6 +135,7 @@ print(f"relative difference between PhiF_POD and Phi_POD: {np.linalg.norm(PhiF_P
 ### Test the SR-Galerkin ROM simulation accuracy
 
 Tensors_POD = fom.assemble_weighted_petrov_galerkin_tensors(Psi_POD_weighted, PhiF_POD_weighted) # A, p, s, M
+
 fname_Phi_POD = data_path + "Phi_POD.npy"
 np.save(fname_Phi_POD,Phi_POD)
 fname_Psi_POD = data_path + "Psi_POD.npy"

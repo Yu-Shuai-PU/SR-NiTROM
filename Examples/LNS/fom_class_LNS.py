@@ -777,6 +777,38 @@ class LNS:
 
         return (A_mat, p_vec, s_vec, M_mat)
     
+    # def assemble_weighted_petrov_galerkin_tensors(self, Psi_w, PhiF_w):
+    #     """Assemble the coefficients of reduced-order dynamics for the weighted mode amplitude Ra via Petrov-Galerkin projection.
+    #     Notice that x-derivative is commutative with the weight matrix R and W = R^T R,
+    #     however, the linear dynamics is not commutative with R in general because it involves y-derivatives and multiplication by base flow U(y).
+    #     """
+        
+    #     r = Psi_w.shape[1]
+    #     A_mat = np.zeros((r, r))
+    #     p_vec = np.zeros(r)
+    #     s_vec = np.zeros(r)
+        
+    #     R_T_Psi_w = self.apply_sqrt_inner_product_weight_transpose(Psi_w)
+    #     R_inv_PhiF_w = self.apply_inv_sqrt_inner_product_weight(PhiF_w)
+
+    #     PhiF_w_dx = self.diff_x_basis(PhiF_w, order=1)
+    #     R_inv_PhiF_w_dx = self.diff_x_basis(R_inv_PhiF_w, order=1)
+        
+    #     M_mat = Psi_w.T @ PhiF_w_dx
+        
+    #     for i in range(r):
+    #         linear_R_inv_PhiF_w_i = self.linear(R_inv_PhiF_w[:, i])
+    #         linear_R_inv_PhiF_w_i_v = linear_R_inv_PhiF_w_i[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
+    #         linear_R_inv_PhiF_w_i_eta = linear_R_inv_PhiF_w_i[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
+    #         R_inv_PhiF_w_dx_i_v = R_inv_PhiF_w_dx[0 : self.nx * self.ny * self.nz, i].reshape((self.nx, self.ny, self.nz))
+    #         R_inv_PhiF_w_dx_i_eta = R_inv_PhiF_w_dx[self.nx * self.ny * self.nz : , i].reshape((self.nx, self.ny, self.nz))
+    #         p_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, linear_R_inv_PhiF_w_i_v, linear_R_inv_PhiF_w_i_eta)
+    #         s_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, R_inv_PhiF_w_dx_i_v, R_inv_PhiF_w_dx_i_eta)
+    #         for j in range(r):
+    #             A_mat[i, j] = np.dot(R_T_Psi_w[:, i], self.linear(R_inv_PhiF_w[:, j]))
+
+    #     return (A_mat, p_vec, s_vec, M_mat)
+    
     def assemble_weighted_petrov_galerkin_tensors(self, Psi_w, PhiF_w):
         """Assemble the coefficients of reduced-order dynamics for the weighted mode amplitude Ra via Petrov-Galerkin projection.
         Notice that x-derivative is commutative with the weight matrix R and W = R^T R,
@@ -792,18 +824,14 @@ class LNS:
         R_inv_PhiF_w = self.apply_inv_sqrt_inner_product_weight(PhiF_w)
 
         PhiF_w_dx = self.diff_x_basis(PhiF_w, order=1)
-        R_inv_PhiF_w_dx = self.diff_x_basis(R_inv_PhiF_w, order=1)
         
         M_mat = Psi_w.T @ PhiF_w_dx
         
         for i in range(r):
             linear_R_inv_PhiF_w_i = self.linear(R_inv_PhiF_w[:, i])
-            linear_R_inv_PhiF_w_i_v = linear_R_inv_PhiF_w_i[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
-            linear_R_inv_PhiF_w_i_eta = linear_R_inv_PhiF_w_i[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
-            R_inv_PhiF_w_dx_i_v = R_inv_PhiF_w_dx[0 : self.nx * self.ny * self.nz, i].reshape((self.nx, self.ny, self.nz))
-            R_inv_PhiF_w_dx_i_eta = R_inv_PhiF_w_dx[self.nx * self.ny * self.nz : , i].reshape((self.nx, self.ny, self.nz))
-            p_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, linear_R_inv_PhiF_w_i_v, linear_R_inv_PhiF_w_i_eta)
-            s_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, R_inv_PhiF_w_dx_i_v, R_inv_PhiF_w_dx_i_eta)
+            R_linear_R_inv_PhiF_w_i = self.apply_sqrt_inner_product_weight(linear_R_inv_PhiF_w_i)
+            p_vec[i] = np.dot(R_linear_R_inv_PhiF_w_i, self.q_template_dx_vec_w)
+            s_vec[i] = np.dot(PhiF_w_dx[:, i], self.q_template_dx_vec_w)
             for j in range(r):
                 A_mat[i, j] = np.dot(R_T_Psi_w[:, i], self.linear(R_inv_PhiF_w[:, j]))
 
@@ -867,7 +895,12 @@ class LNS:
         self.eta_template        = self.eta_template_vec.reshape((self.nx, self.ny, self.nz))
         self.eta_template_x_quarter_shifted = self.shift_x_input_3D(self.eta_template, self.Lx / 4)
         self.eta_template_dx_vec = q_template_dx_vec[self.nx * self.ny * self.nz : ]
-        self.eta_template_dx     = self.eta_template_dx_vec.reshape((self.nx, self.ny, self.nz))    
+        self.eta_template_dx     = self.eta_template_dx_vec.reshape((self.nx, self.ny, self.nz))
+        
+        self.q_template_vec_w = self.apply_sqrt_inner_product_weight(q_template_vec)
+        self.q_template_dx_vec_w = self.apply_sqrt_inner_product_weight(q_template_dx_vec)
+        self.v_template_dx_w = self.q_template_dx_vec_w[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
+        self.eta_template_dx_w = self.q_template_dx_vec_w[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))    
     
     def evaluate_fom_shifting_speed_denom(self, q_fitted_vec):
         """Evaluate the shift speed for the FOM."""

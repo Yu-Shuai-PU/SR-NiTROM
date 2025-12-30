@@ -37,7 +37,7 @@ See Schmid and Henningson 2001, "Stability and Transition in Shear Flows":
 Current progress:
 
 1. Successfully verify that our initial condition has zero x-z mean streamwise and spanwise velocity component (u and w) to ensure (u_ff)_{0, 0} = (w_ff)_{0, 0} = 0 (thus the disturbance kinetic energy can be well defined using only v and eta components).
-2. Successfully verify that the disturbance kinetic energy computed using (u, v, w) and (v, eta) are consistent.
+2. Successfully verify that the disturbance kinetic energy computed using (u, v, w) and (v, eta) are consistent, which goes for 1/(2LxLz) int int int u^2 + v^2 + w^2 dy dx dz
 3. Successfully verify that the two ways of computing the denominator <u_3D, u_3D_tmp>^2 + <u_3D, T_L/4 u_3D_tmp>^2 are consistent.
 4. Successfully verify that the two ways of computing the shifting speed are consistent.
 
@@ -116,16 +116,61 @@ amp = 1.0
 psi0 = np.zeros((nx, ny, nz, n_traj))
 v0   = np.zeros((nx, ny, nz, n_traj))
 eta0 = np.zeros((nx, ny, nz, n_traj))
-psi0[:, :, :, 0] = amp * (1-Y**2)**2 * ((X - Lx/2)/2) * (Z - Lz/2) ** 2 * np.exp(-((X - Lx/2)/2)**2 - ((Z - Lz/2)/2)**2)
+u0   = np.zeros((nx, ny, nz, n_traj))
+w0   = np.zeros((nx, ny, nz, n_traj))
 
+# psi0[:, :, :, 0] = np.cos(2 * np.pi / Lx * X) * np.sin(2 * np.pi / Lz * Z) * (1 - Y**2)
+psi0[:, :, :, 0] = 1.0 / np.pi * np.sin(2 * np.pi / Lx * X) * np.sin(2 * np.pi / Lz * Z) * (1 - Y**2) + np.cos(2 * np.pi / Lx * X) * np.sin(2 * np.pi / Lz * Z) * (1 - Y**2)
 for k in range (n_traj):
     v0[:, :, :, k] = fom.diff_z(psi0[:, :, :, k], order = 1)
     eta0[:, :, :, k] = fom.diff_x(fom.diff_1_y(psi0[:, :, :, k]), order = 1)
+    w0[:, :, :, k] = -fom.diff_1_y(psi0[:, :, :, k])
 
 # endregion
 
-# region 2: Simulations
+### Test: verify that <q1, q2>_E = <Lq1, Lq2>_L2
 
+inner_product_E = fom.inner_product_3D(v0[:, :, :, 0], eta0[:, :, :, 0],
+                                       v0[:, :, :, 0], eta0[:, :, :, 0])
+
+q_vec = np.concatenate((v0[:, :, :, 0].ravel(), eta0[:, :, :, 0].ravel()))
+q_vec_weighted = fom.compute_W_times_basis(q_vec)
+
+inner_product_weighted_L2 = np.dot(q_vec, q_vec_weighted)
+
+# q0_weighted = fom.weighted_by_L(np.concatenate((v0[:, :, :, 0].ravel(), eta0[:, :, :, 0].ravel())))
+# inner_product_L2 = fom.inner_product_L2(q0_weighted, q0_weighted)
+# inner_product_L2_real = np.dot(q0_weighted, q0_weighted)
+
+print("Inner product in energy norm:", inner_product_E)
+print("Inner product in weighted L2 norm:", inner_product_weighted_L2)
+
+# ### Test: verify that the shifting operation is commutative with the weighted operation L
+
+# q0 = np.concatenate((v0[:, :, :, 0].ravel(), eta0[:, :, :, 0].ravel()))
+# c = 1.23
+
+# v0_shifted = fom.shift_x_input_3D(v0[:, :, :, 0], c)
+# eta0_shifted = fom.shift_x_input_3D(eta0[:, :, :, 0], c)
+# q0_shifted = np.concatenate((v0_shifted.ravel(), eta0_shifted.ravel()))
+# L_q0_shifted = fom.weighted_by_L(q0_shifted) # L (S_c q0)
+
+# q0_weighted = fom.weighted_by_L(q0) # 6N 
+# q0_1_weighted_shifted = fom.shift_x_input_3D(q0_weighted[0 : nx * ny * nz].reshape((nx, ny, nz)), c).ravel()
+# q0_2_weighted_shifted = fom.shift_x_input_3D(q0_weighted[nx * ny * nz : 2 * nx * ny * nz].reshape((nx, ny, nz)), c).ravel()
+# q0_3_weighted_shifted = fom.shift_x_input_3D(q0_weighted[2 * nx * ny * nz : 3 * nx * ny * nz].reshape((nx, ny, nz)), c).ravel()
+# q0_4_weighted_shifted = fom.shift_x_input_3D(q0_weighted[3 * nx * ny * nz : 4 * nx * ny * nz].reshape((nx, ny, nz)), c).ravel() 
+# q0_5_weighted_shifted = fom.shift_x_input_3D(q0_weighted[4 * nx * ny * nz : 5 * nx * ny * nz].reshape((nx, ny, nz)), c).ravel()
+# q0_6_weighted_shifted = fom.shift_x_input_3D(q0_weighted[5 * nx * ny * nz : 6 * nx * ny * nz].reshape((nx, ny, nz)), c).ravel()
+# L_q0_weighted_shifted = np.concatenate((q0_1_weighted_shifted, q0_2_weighted_shifted, q0_3_weighted_shifted, q0_4_weighted_shifted, q0_5_weighted_shifted, q0_6_weighted_shifted))
+
+# diff_L2 = np.linalg.norm(L_q0_shifted - L_q0_weighted_shifted)
+# print("Difference between L (S_c q0) and S_c (L q0):", diff_L2)
+
+### First, test whether the newly implemented weight function is correctly implemented
+
+
+# region 2: Simulations
 pool_inputs = (MPI.COMM_WORLD, n_traj)
 pool = classes.mpi_pool(*pool_inputs)
 

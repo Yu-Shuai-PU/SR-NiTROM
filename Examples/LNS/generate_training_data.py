@@ -127,42 +127,6 @@ for k in range (n_traj):
     
 # endregion
 
-### Test the commutative property of R and linear operators and x derivatives
-
-q_vec = np.concatenate((v0[:, :, :, 0].ravel(), eta0[:, :, :, 0].ravel()))
-linear_q_vec = fom.linear(q_vec)
-R_linear_q_vec = fom.apply_sqrt_inner_product_weight(linear_q_vec)
-
-W_linear_q_vec = fom.apply_inner_product_weight(linear_q_vec)
-
-R_vec = fom.apply_sqrt_inner_product_weight(q_vec)
-W_vec = fom.apply_inner_product_weight(q_vec)
-linear_R_vec = fom.linear(R_vec)
-linear_W_vec = fom.linear(W_vec)
-
-v0_dx = fom.diff_x(v0[:, :, :, 0], order = 1)
-eta0_dx = fom.diff_x(eta0[:, :, :, 0], order = 1)
-q_vec_dx = np.concatenate((v0_dx.ravel(), eta0_dx.ravel()))
-R_q_vec_dx = fom.apply_sqrt_inner_product_weight(q_vec_dx)
-W_q_vec_dx = fom.apply_inner_product_weight(q_vec_dx)
-Wq_vec = fom.apply_inner_product_weight(q_vec)
-Wq_vec_v_dx = fom.diff_x(Wq_vec[0 : nx * ny * nz].reshape((nx, ny, nz)), order = 1)
-Wq_vec_eta_dx = fom.diff_x(Wq_vec[nx * ny * nz : ].reshape((nx, ny, nz)), order = 1)
-Wq_vec_dx = np.concatenate((Wq_vec_v_dx.ravel(), Wq_vec_eta_dx.ravel()))
-Rq_vec = fom.apply_sqrt_inner_product_weight(q_vec)
-Rq_vec_v_dx = fom.diff_x(Rq_vec[0 : nx * ny * nz].reshape((nx, ny, nz)), order = 1)
-Rq_vec_eta_dx = fom.diff_x(Rq_vec[nx * ny * nz : ].reshape((nx, ny, nz)), order = 1)
-Rq_vec_dx = np.concatenate((Rq_vec_v_dx.ravel(), Rq_vec_eta_dx.ravel()))
-
-print("Testing the commutative property of R and linear operators and x derivatives:")
-print("|| R L q - L R q ||_2 = ", np.linalg.norm(R_linear_q_vec - linear_R_vec) / np.linalg.norm(R_vec))
-print("Testing the commutative property of W and linear operators and x derivatives:")
-print("|| W L q - L W q ||_2 = ", np.linalg.norm(W_linear_q_vec - linear_W_vec) / np.linalg.norm(W_vec))
-print("Testing the commutative property of R and x derivatives:")
-print("|| R q_x - (R q)_x ||_2 = ", np.linalg.norm(R_q_vec_dx - Rq_vec_dx) / np.linalg.norm(Rq_vec))
-print("Testing the commutative property of W and x derivatives:")
-print("|| W q_x - (W q)_x ||_2 = ", np.linalg.norm(W_q_vec_dx - Wq_vec_dx) / np.linalg.norm(Wq_vec))
-
 # region 2: Simulations
 pool_inputs = (MPI.COMM_WORLD, n_traj)
 pool = classes.mpi_pool(*pool_inputs)

@@ -777,30 +777,35 @@ class LNS:
 
         return (A_mat, p_vec, s_vec, M_mat)
     
-    def assemble_weighted_petrov_galerkin_tensors(self, Psi, PhiF):
+    def assemble_weighted_petrov_galerkin_tensors(self, Psi_w, PhiF_w):
         """Assemble the coefficients of reduced-order dynamics for the weighted mode amplitude Ra via Petrov-Galerkin projection.
         Notice that x-derivative is commutative with the weight matrix R and W = R^T R,
         however, the linear dynamics is not commutative with R in general because it involves y-derivatives and multiplication by base flow U(y).
         """
         
-        r = Psi.shape[1]
+        r = Psi_w.shape[1]
         A_mat = np.zeros((r, r))
         p_vec = np.zeros(r)
         s_vec = np.zeros(r)
-
-        PhiF_dx = self.diff_x_basis(PhiF, order=1)
         
-        M_mat = Psi.T @ PhiF_dx
+        R_T_Psi_w = self.apply_sqrt_inner_product_weight_transpose(Psi_w)
+        R_inv_PhiF_w = self.apply_inv_sqrt_inner_product_weight(PhiF_w)
+
+        PhiF_w_dx = self.diff_x_basis(PhiF_w, order=1)
+        R_inv_PhiF_w_dx = self.diff_x_basis(R_inv_PhiF_w, order=1)
+        
+        M_mat = Psi_w.T @ PhiF_w_dx
         
         for i in range(r):
-            linear_v_i = self.linear(PhiF[:, i])[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
-            linear_eta_i = self.linear(PhiF[:, i])[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
-            PhiF_dx_v_i = PhiF_dx[0 : self.nx * self.ny * self.nz, i].reshape((self.nx, self.ny, self.nz))
-            PhiF_dx_eta_i = PhiF_dx[self.nx * self.ny * self.nz : , i].reshape((self.nx, self.ny, self.nz))
-            p_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, linear_v_i, linear_eta_i)
-            s_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, PhiF_dx_v_i, PhiF_dx_eta_i)
+            linear_R_inv_PhiF_w_i = self.linear(R_inv_PhiF_w[:, i])
+            linear_R_inv_PhiF_w_i_v = linear_R_inv_PhiF_w_i[0 : self.nx * self.ny * self.nz].reshape((self.nx, self.ny, self.nz))
+            linear_R_inv_PhiF_w_i_eta = linear_R_inv_PhiF_w_i[self.nx * self.ny * self.nz : ].reshape((self.nx, self.ny, self.nz))
+            R_inv_PhiF_w_dx_i_v = R_inv_PhiF_w_dx[0 : self.nx * self.ny * self.nz, i].reshape((self.nx, self.ny, self.nz))
+            R_inv_PhiF_w_dx_i_eta = R_inv_PhiF_w_dx[self.nx * self.ny * self.nz : , i].reshape((self.nx, self.ny, self.nz))
+            p_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, linear_R_inv_PhiF_w_i_v, linear_R_inv_PhiF_w_i_eta)
+            s_vec[i] = self.inner_product_3D(self.v_template_dx, self.eta_template_dx, R_inv_PhiF_w_dx_i_v, R_inv_PhiF_w_dx_i_eta)
             for j in range(r):
-                A_mat[i, j] = np.dot(Psi[:, i], self.linear(PhiF[:, j]))
+                A_mat[i, j] = np.dot(R_T_Psi_w[:, i], self.linear(R_inv_PhiF_w[:, j]))
 
         return (A_mat, p_vec, s_vec, M_mat)
     

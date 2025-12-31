@@ -54,17 +54,24 @@ os.makedirs(fig_path, exist_ok=True)
 
 #%% # Generate and save trajectory
 fname_traj_template = data_path + "traj_template.npy"
-fname_traj_template_dx = data_path + "traj_template_dx.npy"
+fname_traj_template_dx = data_path + "traj_template_dx.npy" # q_template_dx
+fname_traj_template_dx_weighted = data_path + "traj_template_dx_weighted.npy" # R q_template_dx, where W = R^T R is the inner product weight matrix
 fname_traj_template_dxx = data_path + "traj_template_dxx.npy"
 fname_traj_init = data_path + "traj_init_%03d.npy" # for initial condition of u
+fname_traj_init_weighted = data_path + "traj_init_weighted_%03d.npy" # for initial condition of u
 fname_traj_init_fitted = data_path + "traj_init_fitted_%03d.npy" # for initial condition of u fitted
+fname_traj_init_fitted_weighted = data_path + "traj_init_fitted_weighted_%03d.npy" # for initial condition of u fitted
 fname_traj = traj_path + "traj_%03d.npy" # for u
+fname_traj_weighted = traj_path + "traj_weighted_%03d.npy" # for u
 fname_traj_fitted = traj_path + "traj_fitted_%03d.npy" # for u fitted
+fname_traj_fitted_weighted = traj_path + "traj_fitted_weighted_%03d.npy" # for u fitted
 fname_weight_traj = traj_path + "weight_traj_%03d.npy"
 fname_weight_shift_amount = traj_path + "weight_shift_amount_%03d.npy"
 fname_weight_shift_speed = traj_path + "weight_shift_speed_%03d.npy"
 fname_deriv = traj_path + "deriv_%03d.npy" # for du/dt
+fname_deriv_weighted = traj_path + "deriv_weighted_%03d.npy" # for du/dt
 fname_deriv_fitted = traj_path + "deriv_fitted_%03d.npy" # for du/dt fitted
+fname_deriv_fitted_weighted = traj_path + "deriv_fitted_weighted_%03d.npy" # for du/dt fitted
 fname_shift_amount = traj_path + "shift_amount_%03d.npy" # for shifting amount
 fname_shift_speed = traj_path + "shift_speed_%03d.npy" # for shifting speed
 fname_time = traj_path + "time.npy"
@@ -176,11 +183,17 @@ for k in range (pool.my_n_traj):
         
     np.save(fname_time, tsave)
     np.save(fname_traj_init%traj_idx,traj_init)
+    np.save(fname_traj_init_weighted%traj_idx,fom.apply_sqrt_inner_product_weight(traj_init))
     np.save(fname_traj_init_fitted%traj_idx,traj_init_fitted)
+    np.save(fname_traj_init_fitted_weighted%traj_idx,fom.apply_sqrt_inner_product_weight(traj_init_fitted))
     np.save(fname_traj%traj_idx, traj)
+    np.save(fname_traj_weighted%traj_idx, fom.apply_sqrt_inner_product_weight(traj))
     np.save(fname_traj_fitted%traj_idx, traj_fitted)
+    np.save(fname_traj_fitted_weighted%traj_idx, fom.apply_sqrt_inner_product_weight(traj_fitted))
     np.save(fname_deriv%traj_idx, deriv)
+    np.save(fname_deriv_weighted%traj_idx, fom.apply_sqrt_inner_product_weight(deriv))
     np.save(fname_deriv_fitted%traj_idx, deriv_fitted)
+    np.save(fname_deriv_fitted_weighted%traj_idx, fom.apply_sqrt_inner_product_weight(deriv_fitted))
     np.save(fname_shift_amount%traj_idx, shifting_amount)
     np.save(fname_shift_speed%traj_idx, shifting_speed)
     np.save(fname_weight_traj%traj_idx, weight_traj)

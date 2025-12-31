@@ -207,6 +207,17 @@ class LNS:
         factor = (self._deriv_factor_x ** order).reshape(-1, 1, 1)
         return self.IFFT_1D(u_tilde * factor, axis=0)
     
+    def diff_x_state(self, q_vec, order):
+        """Compute the spatial derivative of the FOM state q_vec (2*nx*ny*nz, ) order 'order' in x direction.
+        """
+        v = q_vec[:self.nx * self.ny * self.nz].reshape(self.nx, self.ny, self.nz)
+        eta = q_vec[self.nx * self.ny * self.nz:].reshape(self.nx, self.ny, self.nz)
+        
+        dv_dx = self.diff_x(v, order)
+        deta_dx = self.diff_x(eta, order)
+        
+        return np.concatenate((dv_dx.flatten(), deta_dx.flatten()))
+    
     def diff_z(self, u, order):
         """Compute the spatial derivative of the 3D field u(x, y, z) of order 'order' in z direction.
         """

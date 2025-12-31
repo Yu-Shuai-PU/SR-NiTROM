@@ -68,17 +68,25 @@ os.makedirs(data_path, exist_ok=True)
 os.makedirs(fig_path, exist_ok=True)
 
 fname_traj_template = data_path + "traj_template.npy"
-fname_traj_template_dx = data_path + "traj_template_dx.npy"
+fname_traj_template_dx = data_path + "traj_template_dx.npy" # q_template_dx
+fname_traj_template_dx_weighted = data_path + "traj_template_dx_weighted.npy" # R q_template_dx, where W = R^T R is the inner product weight matrix
 fname_traj_template_dxx = data_path + "traj_template_dxx.npy"
+fname_traj_template_dxx_weighted = data_path + "traj_template_dxx_weighted.npy"
 fname_traj_init = data_path + "traj_init_%03d.npy" # for initial condition of u
+fname_traj_init_weighted = data_path + "traj_init_weighted_%03d.npy" # for initial condition of u
 fname_traj_init_fitted = data_path + "traj_init_fitted_%03d.npy" # for initial condition of u fitted
+fname_traj_init_fitted_weighted = data_path + "traj_init_fitted_weighted_%03d.npy" # for initial condition of u fitted
 fname_traj = traj_path + "traj_%03d.npy" # for u
+fname_traj_weighted = traj_path + "traj_weighted_%03d.npy" # for u
 fname_traj_fitted = traj_path + "traj_fitted_%03d.npy" # for u fitted
+fname_traj_fitted_weighted = traj_path + "traj_fitted_weighted_%03d.npy" # for u fitted
 fname_weight_traj = traj_path + "weight_traj_%03d.npy"
 fname_weight_shift_amount = traj_path + "weight_shift_amount_%03d.npy"
 fname_weight_shift_speed = traj_path + "weight_shift_speed_%03d.npy"
 fname_deriv = traj_path + "deriv_%03d.npy" # for du/dt
+fname_deriv_weighted = traj_path + "deriv_weighted_%03d.npy" # for du/dt
 fname_deriv_fitted = traj_path + "deriv_fitted_%03d.npy" # for du/dt fitted
+fname_deriv_fitted_weighted = traj_path + "deriv_fitted_weighted_%03d.npy" # for du/dt fitted
 fname_shift_amount = traj_path + "shift_amount_%03d.npy" # for shifting amount
 fname_shift_speed = traj_path + "shift_speed_%03d.npy" # for shifting speed
 fname_time = traj_path + "time.npy"
@@ -125,9 +133,14 @@ n_traj = 1
 
 # region 2: Simulations
 pool_inputs = (MPI.COMM_WORLD, n_traj)
-pool_kwargs = {'fname_time':fname_time, 'fname_traj':fname_traj,'fname_traj_fitted':fname_traj_fitted,
-               'fname_X_template':fname_traj_template, 'fname_X_template_dx':fname_traj_template_dx, 'fname_X_template_dxx':fname_traj_template_dxx,
-               'fname_deriv':fname_deriv,'fname_deriv_fitted':fname_deriv_fitted,
+pool_kwargs = {'fname_time':fname_time,
+               'fname_X_template': fname_traj_template,
+               'fname_X_template_dx':fname_traj_template_dx, 'fname_X_template_dx_weighted':fname_traj_template_dx_weighted,
+               'fname_X_template_dxx':fname_traj_template_dxx, 'fname_X_template_dxx_weighted':fname_traj_template_dxx_weighted,
+               'fname_traj':fname_traj, 'fname_traj_weighted':fname_traj_weighted,
+               'fname_traj_fitted':fname_traj_fitted, 'fname_traj_fitted_weighted':fname_traj_fitted_weighted,
+               'fname_deriv':fname_deriv,'fname_deriv_weighted':fname_deriv_weighted,
+               'fname_deriv_fitted':fname_deriv_fitted,'fname_deriv_fitted_weighted':fname_deriv_fitted_weighted,
                'fname_shift_amount':fname_shift_amount,'fname_shift_speed':fname_shift_speed}
 pool = classes.mpi_pool(*pool_inputs,**pool_kwargs)
 pool.load_data()
@@ -341,6 +354,7 @@ elif initialization == "Previous NiTROM":
         )
         point = (Phi_NiTROM_w, Psi_NiTROM_w) + Tensors_NiTROM_w[:-2]    
 
+
 if k0 == 0:
     costvec_NiTROM = []
     gradvec_NiTROM = []
@@ -390,12 +404,8 @@ for k in range(k0, k0 + kouter):
     
     opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
     opt_obj_kwargs = {
-    'X_template_dx': pool.X_template_dx,
-    'X_template_dxx': pool.X_template_dxx,
-    'spatial_deriv_method': fom.diff_x,
-    'inner_product_method': fom.inner_product,
-    'outer_product_method': fom.outer_product,
-    'spatial_shift_method': fom.shift,
+    'spatial_deriv_method': fom.diff_x_basis,
+    'spatial_shift_method': fom.shift_x_state,
     'which_fix': which_fix,
     'relative_weight_c': relative_weight_c,
     'relative_weight_cdot': relative_weight_cdot,
@@ -435,12 +445,8 @@ for k in range(k0, k0 + kouter):
         
 opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
 opt_obj_kwargs = {
-'X_template_dx': pool.X_template_dx,
-'X_template_dxx': pool.X_template_dxx,
-'spatial_deriv_method': fom.spatial_deriv,
-'inner_product_method': fom.inner_product,
-'outer_product_method': fom.outer_product,
-'spatial_shift_method': fom.shift,
+'spatial_deriv_method': fom.diff_x_basis,
+'spatial_shift_method': fom.shift_x_state,
 'which_fix': which_fix,
 'relative_weight_c': relative_weight_c,
 'relative_weight_cdot': relative_weight_cdot,

@@ -57,6 +57,7 @@ fname_traj_template = data_path + "traj_template.npy"
 fname_traj_template_dx = data_path + "traj_template_dx.npy" # q_template_dx
 fname_traj_template_dx_weighted = data_path + "traj_template_dx_weighted.npy" # R q_template_dx, where W = R^T R is the inner product weight matrix
 fname_traj_template_dxx = data_path + "traj_template_dxx.npy"
+fname_traj_template_dxx_weighted = data_path + "traj_template_dxx_weighted.npy"
 fname_traj_init = data_path + "traj_init_%03d.npy" # for initial condition of u
 fname_traj_init_weighted = data_path + "traj_init_weighted_%03d.npy" # for initial condition of u
 fname_traj_init_fitted = data_path + "traj_init_fitted_%03d.npy" # for initial condition of u fitted
@@ -104,10 +105,16 @@ nsave = 2 # sample interval
 time = dt * np.linspace(0, int(T/dt), int(T/dt) + 1, endpoint=True)
 tsave = time[::nsave]
 
+fom = fom_class_LNS.LNS(Lx, Ly, Lz, nx, ny, nz, y, Re, U_base, U_base_dy, U_base_dyy)
+
 traj_template = np.load(fname_traj_template)
 traj_template_dx = np.load(fname_traj_template_dx)
+traj_template_dx_weighted = fom.apply_sqrt_inner_product_weight(traj_template_dx)
+np.save(fname_traj_template_dx_weighted, traj_template_dx_weighted)
+traj_template_dxx = np.load(fname_traj_template_dxx)
+traj_template_dxx_weighted = fom.apply_sqrt_inner_product_weight(traj_template_dxx)
+np.save(fname_traj_template_dxx_weighted, traj_template_dxx_weighted)
 
-fom = fom_class_LNS.LNS(Lx, Ly, Lz, nx, ny, nz, y, Re, U_base, U_base_dy, U_base_dyy)
 fom.load_template(traj_template, traj_template_dx)
 time = dt * np.linspace(0, int(T/dt), int(T/dt) + 1, endpoint=True)
 tstep_kse_fom = fom_class_LNS.time_step_LNS(fom, time)

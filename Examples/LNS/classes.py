@@ -67,6 +67,15 @@ class mpi_pool:
             self.X = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
         
             for k in range (self.my_n_traj): self.X[k,] = X[k]
+            
+        fname_traj_weighted = kwargs.get('fname_traj_weighted',None)
+        if fname_traj_weighted != None:
+            self.fnames_traj_weighted = [fname_traj_weighted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
+            X_weighted = [np.load(self.fnames_traj_weighted[k]) for k in range (self.my_n_traj)]
+            
+            self.X_weighted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
+
+            for k in range (self.my_n_traj): self.X_weighted[k,] = X_weighted[k]
         
         fname_traj_fitted = kwargs.get('fname_traj_fitted',None)
         if fname_traj_fitted != None:
@@ -76,6 +85,15 @@ class mpi_pool:
             self.X_fitted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
 
             for k in range (self.my_n_traj): self.X_fitted[k,] = X_fitted[k]
+            
+        fname_traj_fitted_weighted = kwargs.get('fname_traj_fitted_weighted',None)
+        if fname_traj_fitted_weighted != None:
+            self.fnames_traj_fitted_weighted = [fname_traj_fitted_weighted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
+            X_fitted_weighted = [np.load(self.fnames_traj_fitted_weighted[k]) for k in range (self.my_n_traj)]
+            
+            self.X_fitted_weighted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
+
+            for k in range (self.my_n_traj): self.X_fitted_weighted[k,] = X_fitted_weighted[k]
         
     def load_weights(self,kwargs):
 
@@ -122,6 +140,15 @@ class mpi_pool:
             
             for k in range (self.my_n_traj): self.dX[k,] = dX[k]
             
+        fname_deriv_weighted = kwargs.get('fname_deriv_weighted',None)
+        if fname_deriv_weighted != None:
+            self.fnames_deriv_weighted = [fname_deriv_weighted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
+            dX_weighted = [np.load(self.fnames_deriv_weighted[k]) for k in range (self.my_n_traj)]
+            
+            self.dX_weighted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
+            
+            for k in range (self.my_n_traj): self.dX_weighted[k,] = dX_weighted[k]
+            
         fname_deriv_fitted = kwargs.get('fname_deriv_fitted',None)
         if fname_deriv_fitted != None:
             self.fnames_deriv_fitted = [fname_deriv_fitted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
@@ -131,6 +158,15 @@ class mpi_pool:
             
             for k in range (self.my_n_traj): self.dX_fitted[k,] = dX_fitted[k]
             
+        fname_deriv_fitted_weighted = kwargs.get('fname_deriv_fitted_weighted',None)
+        if fname_deriv_fitted_weighted != None:
+            self.fnames_deriv_fitted_weighted = [fname_deriv_fitted_weighted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
+            dX_fitted_weighted = [np.load(self.fnames_deriv_fitted_weighted[k]) for k in range (self.my_n_traj)]
+            
+            self.dX_fitted_weighted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
+            
+            for k in range (self.my_n_traj): self.dX_fitted_weighted[k,] = dX_fitted_weighted[k]
+        
     def load_template(self,kwargs):
         
         fname_X_template = kwargs.get('fname_X_template',None)
@@ -139,9 +175,15 @@ class mpi_pool:
         
         fname_X_template_dx = kwargs.get('fname_X_template_dx',None)
         self.X_template_dx = np.load(fname_X_template_dx)
+        
+        fname_X_template_dx_weighted = kwargs.get('fname_X_template_dx_weighted',None)
+        self.X_template_dx_weighted = np.load(fname_X_template_dx_weighted)
             
         fname_X_template_dxx = kwargs.get('fname_X_template_dxx',None)
         self.X_template_dxx = np.load(fname_X_template_dxx)
+        
+        fname_X_template_dxx_weighted = kwargs.get('fname_X_template_dxx_weighted',None)
+        self.X_template_dxx_weighted = np.load(fname_X_template_dxx_weighted)
             
     def load_shift(self,kwargs):
         fname_shift_amount = kwargs.get('fname_shift_amount',None)
@@ -159,8 +201,6 @@ class mpi_pool:
             self.cdot = np.zeros((self.my_n_traj, self.n_snapshots))
 
             for k in range (self.my_n_traj): self.cdot[k,] = cdot[k]
-
-    
 
 class optimization_objects:
 
@@ -187,21 +227,20 @@ class optimization_objects:
             stab_promoting_tf:      value of final time for stability promoting penalty
             stab_promoting_ic:      random (unit-norm) vector to probe the stability penalty
         """
-        
-        # self.sol_init = mpi_pool.sol_init[which_trajs,:]
-        # self.sol_init_fitted = mpi_pool.sol_init_fitted[which_trajs,:]
+
         self.X = mpi_pool.X[which_trajs,:,:]
+        self.X_weighted = mpi_pool.X_weighted[which_trajs,:,:]
         self.X_fitted = mpi_pool.X_fitted[which_trajs,:,:]
+        self.X_fitted_weighted = mpi_pool.X_fitted_weighted[which_trajs,:,:]
         self.F = mpi_pool.F[:,which_trajs]
         self.c = mpi_pool.c[which_trajs,:]
         self.cdot = mpi_pool.cdot[which_trajs,:]
         self.time = mpi_pool.time[which_times]
-        # self.weights_X = mpi_pool.weights_X[which_trajs]
-        # self.weights_c = mpi_pool.weights_c[which_trajs]
-        # self.weights_cdot = mpi_pool.weights_cdot[which_trajs]
 
         self.X = self.X[:,:,which_times]
+        self.X_weighted = self.X_weighted[:,:,which_times]
         self.X_fitted = self.X_fitted[:,:,which_times]
+        self.X_fitted_weighted = self.X_fitted_weighted[:,:,which_times]
         self.c = self.c[:,which_times]
         self.cdot = self.cdot[:,which_times]
         
@@ -268,11 +307,11 @@ class optimization_objects:
         self.weights_c *= self.relative_weight_c / (np.sum(counts)*self.n_snapshots)
         self.weights_cdot *= self.relative_weight_cdot / (np.sum(counts)*self.n_snapshots)    
         
-        self.X_template_dx = kwargs.get('X_template_dx',None)
-        self.X_template_dxx = kwargs.get('X_template_dxx',None)
+        self.X_template_dx = mpi_pool.X_template_dx
+        self.X_template_dx_weighted = mpi_pool.X_template_dx_weighted
+        self.X_template_dxx = mpi_pool.X_template_dxx
+        self.X_template_dxx_weighted = mpi_pool.X_template_dxx_weighted
         self.spatial_deriv = kwargs.get('spatial_deriv_method',None)
-        self.inner_product = kwargs.get('inner_product_method',None)
-        self.outer_product = kwargs.get('outer_product_method',None)
         self.shift         = kwargs.get('spatial_shift_method',None)
         
         self.state_mag_threshold = 1e4

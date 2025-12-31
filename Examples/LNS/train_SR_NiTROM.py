@@ -2,6 +2,7 @@ import numpy as np
 import scipy 
 import matplotlib.pyplot as plt
 from mpi4py import MPI
+import math
 
 from scipy.interpolate import interp1d
 from scipy.integrate import solve_ivp
@@ -25,6 +26,34 @@ import opinf_functions as opinf_fun
 import troop_functions
 import fom_class_LNS
 from func_plot import plot_ROM_vs_FOM
+
+def update_relative_weights(initial_relative_weight, final_relative_weight, sigmoid_steepness, k_relative, kouter):
+    
+    """
+    This function is used to adjust dynamically the relative weights of different terms in the loss function as the iteration goes on.
+    For example, at first we want to fix the solution profile error, but later we might want to emphasize more on the matching of shifting amounts
+    """
+    
+    if kouter > 1:
+        progress = k_relative / (kouter - 1)
+    else:
+        progress = 1.0
+
+    sigmoid_variable = sigmoid_steepness * (progress - 0.5)
+    
+    tanh_val = math.tanh(sigmoid_variable)
+    
+    tanh_min = math.tanh(-sigmoid_steepness * 0.5)
+    tanh_max = math.tanh(sigmoid_steepness * 0.5)
+    f_progress = (tanh_val - tanh_min) / (tanh_max - tanh_min)
+
+    if initial_relative_weight < 1e-6 or final_relative_weight < 1e-6:
+        print("Both initial and final relative weights are zero, setting relative weight to zero directly.")
+        relative_weight = 0.0
+    else:
+        relative_weight = math.exp((1.0 - f_progress) * math.log(initial_relative_weight) + f_progress * math.log(final_relative_weight))
+    
+    return relative_weight
 
 # cPOD, cOI, cTR, cOPT = '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3'
 # lPOD, lOI, lTR, lOPT = 'solid', 'dotted', 'dashed', 'dashdot'
@@ -106,9 +135,45 @@ pool.load_data()
 T_final = pool.time[-1]
 
 r = 40 # ROM dimension, should account for 99.5% energy
-timespan_percentage_POD = 1 # percentage of the entire timespan used for POD
+
+initialization = "POD-Galerkin" # "POD-Galerkin" or "Previous NiTROM"
+# initialization = "Previous NiTROM"
+NiTROM_coeff_version = "new" # "old" or "new" for loading the NiTROM coefficients before or after the latest training
+# NiTROM_coeff_version = "old"
+# training_objects = "tensors_and_bases"
+# training_objects = "tensors" 
+training_objects = "no_alternating"
+manifold = "Grassmann" # "Grassmann" or "Stiefel" for Psi manifold
+# manifold = "Stiefel"
+weight_decay_rate = 1 # if weight_decay_rate is not 1, then the snapshots at larger times will be given less weights in the cost function
+r = 10 # ROM dimension
+initial_relative_weight_c = 0.5 # as the training iterations go on, we will gradually increase the weight of shift amount term in the cost function
+final_relative_weight_c = 0.5  # the final relative weight
+sigmoid_steepness_c_weight = 2.0
+initial_relative_weight_cdot = 0.05
+final_relative_weight_cdot = 0.05
+sigmoid_steepness_cdot_weight = 2.0
+k0 = 0
+kouter = 50
+kinner_basis = 3
+kinner_tensor = 3
+initial_step_size_basis = 1e-1
+initial_step_size_tensor = 1e-3
+initial_step_size = 1e-3
+initial_step_size_decrease_rate = 0.9
+sufficient_decrease_rate_basis = 1e-3
+sufficient_decrease_rate_tensor = 1e-3
+initial_sufficient_decrease_rate = 1e-3
+sufficient_decrease_rate_decay = 0.99
+contraction_factor_tensor = 0.6
+contraction_factor_basis = 0.6
+contraction_factor = 0.6
+timespan_percentage_POD = 1.00 # percentage of the entire timespan used for POD
+timespan_percentage_NiTROM_training = 0.025 # percentage of the entire timespan used for NiTROM training
 snapshot_start_time_idx_POD = 0
-snapshot_end_time_idx_POD = 1 + int(timespan_percentage_POD * (pool.n_snapshots - 1))
+snapshot_end_time_idx_POD = 1 + int(timespan_percentage_POD * (pool.n_snapshots - 1)) # 1001
+snapshot_start_time_idx_NiTROM_training = 0
+snapshot_end_time_idx_NiTROM_training = 1 + int(timespan_percentage_NiTROM_training * (pool.n_snapshots - 1))
 max_iterations = 20
 leggauss_deg = 5
 nsave_rom = 11 # nsave_rom = 1 + int(dt_sample/dt) = 1 + sample_interval
@@ -127,25 +192,25 @@ Psi_POD = Phi_POD.copy() # Here, <Phi_POD, Phi_POD>_inner_product_3D = I, where 
 
 # To convert our customized inner product to standard L2 inner product, <q, q>_E = <Rq, Rq>_L2, we need to weight the projection bases:
 
-Psi_POD_weighted  = fom.apply_sqrt_inner_product_weight(Psi_POD) # R * Psi_POD
-Phi_POD_weighted  = Psi_POD_weighted.copy() # R * Phi_POD
-PhiF_POD_weighted = Phi_POD_weighted @ scipy.linalg.inv(Psi_POD_weighted.T @ Phi_POD_weighted) # PhiF_POD = Phi_POD (Psi_POD.T * W * Phi_POD)^{-1}, W = R^T * R
+Psi_POD_w  = fom.apply_sqrt_inner_product_weight(Psi_POD) # R * Psi_POD
+Phi_POD_w  = Psi_POD_w.copy() # R * Phi_POD
+PhiF_POD_w = Phi_POD_w @ scipy.linalg.inv(Psi_POD_w.T @ Phi_POD_w) # PhiF_POD = Phi_POD (Psi_POD.T * W * Phi_POD)^{-1}, W = R^T * R
 
-print(f"relative difference between PhiF_POD and Phi_POD: {np.linalg.norm(PhiF_POD_weighted - Phi_POD_weighted) / np.linalg.norm(Phi_POD_weighted):.4e}") # should be very small, yes!
+print(f"relative difference between PhiF_POD and Phi_POD: {np.linalg.norm(PhiF_POD_w - Phi_POD_w) / np.linalg.norm(Phi_POD_w):.4e}") # should be very small, yes!
 ### Test the SR-Galerkin ROM simulation accuracy
 
-Tensors_POD = fom.assemble_weighted_petrov_galerkin_tensors(Psi_POD_weighted, PhiF_POD_weighted) # A, p, s, M
+Tensors_POD_w = fom.assemble_weighted_petrov_galerkin_tensors(Psi_POD_w, PhiF_POD_w) # A, p, s, M
 
 fname_Phi_POD = data_path + "Phi_POD.npy"
 np.save(fname_Phi_POD,Phi_POD)
 fname_Psi_POD = data_path + "Psi_POD.npy"
 np.save(fname_Psi_POD,Psi_POD)
 fname_Psi_POD_weighted = data_path + "Psi_POD_weighted.npy"
-np.save(fname_Psi_POD_weighted,Psi_POD_weighted)
+np.save(fname_Psi_POD_weighted,Psi_POD_w)
 fname_PhiF_POD_weighted = data_path + "Phi_POD_weighted.npy"
-np.save(fname_PhiF_POD_weighted,Phi_POD_weighted)
-fname_Tensors_POD = data_path + "Tensors_POD_Galerkin.npz"
-np.savez(fname_Tensors_POD, *Tensors_POD)
+np.save(fname_PhiF_POD_weighted,PhiF_POD_w)
+fname_Tensors_POD = data_path + "Tensors_POD_Galerkin_weighted.npz"
+np.savez(fname_Tensors_POD, *Tensors_POD_w)
 disturbance_kinetic_energy_FOM = np.zeros(opt_obj.n_snapshots)
 disturbance_kinetic_energy_SRG = np.zeros(opt_obj.n_snapshots)
 relative_error = np.zeros(opt_obj.n_snapshots)                                             
@@ -157,7 +222,7 @@ num_modes_to_plot = 10
 for k in range(pool.my_n_traj):
     traj_idx = k + pool.disps[pool.rank]
     print("Preparing SR-Galerkin simulation %d/%d"%(traj_idx,pool.n_traj))
-    traj_SRG_init = Psi_POD_weighted.T@fom.apply_sqrt_inner_product_weight(opt_obj.X_fitted[k,:,0].reshape(-1))
+    traj_SRG_init = Psi_POD_w.T@fom.apply_sqrt_inner_product_weight(opt_obj.X_fitted[k,:,0].reshape(-1))
     shifting_amount_SRG_init = opt_obj.c[k,0]
 
     sol_SRG = solve_ivp(opt_obj.evaluate_rom_rhs,
@@ -165,9 +230,9 @@ for k in range(pool.my_n_traj):
                     np.hstack((traj_SRG_init, shifting_amount_SRG_init)),
                     'RK45',
                     t_eval=opt_obj.time,
-                    args=(np.zeros(r),) + Tensors_POD).y
+                    args=(np.zeros(r),) + Tensors_POD_w).y
     
-    traj_fitted_SRG = fom.apply_inv_sqrt_inner_product_weight(PhiF_POD_weighted@sol_SRG[:-1,:])
+    traj_fitted_SRG = fom.apply_inv_sqrt_inner_product_weight(PhiF_POD_w@sol_SRG[:-1,:])
     traj_fitted_SRG_v = traj_fitted_SRG[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
     traj_fitted_SRG_eta = traj_fitted_SRG[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
     shifting_amount_SRG = sol_SRG[-1,:]
@@ -178,7 +243,7 @@ for k in range(pool.my_n_traj):
         traj_SRG_v_vec = fom.shift_x_input_3D(traj_fitted_SRG_v[:, :, :, j], shifting_amount_SRG[j])
         traj_SRG_eta_vec = fom.shift_x_input_3D(traj_fitted_SRG_eta[:, :, :, j], shifting_amount_SRG[j])
         traj_SRG[:,j] = np.concatenate((traj_SRG_v_vec.ravel(), traj_SRG_eta_vec.ravel()))
-        shifting_speed_SRG[j] = opt_obj.compute_shift_speed(sol_SRG[:-1,j], Tensors_POD)
+        shifting_speed_SRG[j] = opt_obj.compute_shift_speed(sol_SRG[:-1,j], Tensors_POD_w)
         diff_SRG_FOM_fitted = traj_fitted_SRG[:,j] - opt_obj.X_fitted[k,:,j]
         diff_SRG_FOM        = traj_SRG[:,j] - opt_obj.X[k,:,j]
         disturbance_kinetic_energy_FOM[j] = fom.inner_product_3D(opt_obj.X_fitted[k,0 : nx * ny * nz,j].reshape((nx, ny, nz)),
@@ -202,7 +267,7 @@ for k in range(pool.my_n_traj):
     shifting_amount_FOM = opt_obj.c[k,:]
     shifting_speed_FOM = opt_obj.cdot[k,:]
     traj_fitted_FOM = opt_obj.X_fitted[k,:,:]
-    traj_fitted_proj = Psi_POD_weighted.T @ fom.apply_sqrt_inner_product_weight(traj_fitted_FOM)
+    traj_fitted_proj = Psi_POD_w.T @ fom.apply_sqrt_inner_product_weight(traj_fitted_FOM)
     
     ### plotting
     plot_ROM_vs_FOM(opt_obj, traj_idx, fig_path, relative_error, relative_error_fitted,
@@ -217,122 +282,174 @@ for k in range(pool.my_n_traj):
 
 # region 2: SR-NiTROM ROM
 
-# Gr_Phi = manifolds.Grassmann(nx, r)
-# Gr_Psi = manifolds.Grassmann(nx, r)
-# # Gr_Psi = manifolds.Stiefel(nx, r)
-# Euc_A  = manifolds.Euclidean(r, r)
-# Euc_B  = manifolds.Euclidean(r, r, r)
-# Euc_p  = manifolds.Euclidean(r)
-# Euc_Q  = manifolds.Euclidean(r, r)
+Gr_Phi_w = manifolds.Grassmann(2 * nx * ny * nz, r)
+if manifold == "Stiefel":
+    Gr_Psi_w = manifolds.Stiefel(2 * nx * ny * nz, r)
+elif manifold == "Grassmann":
+    Gr_Psi_w = manifolds.Grassmann(2 * nx * ny * nz, r)
+Euc_A  = manifolds.Euclidean(r, r)
+Euc_p  = manifolds.Euclidean(r)
 
-# M = manifolds.Product([Gr_Phi, Gr_Psi, Euc_A, Euc_B, Euc_p, Euc_Q])
-# cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
+M = manifolds.Product([Gr_Phi_w, Gr_Psi_w, Euc_A, Euc_p])
+cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
 
-# # Choose between POD-Galerkin initialization and previous training results
-# if initialization == "POD-Galerkin":
-#     print("Loading POD-Galerkin results as initialization")
-#     point = (Phi_POD, Psi_POD) + Tensors_POD[:-2]
-# elif initialization == "Previous NiTROM":
-#     print("Loading previous NiTROM results as initialization (for curriculum learning)")
-#     Phi_NiTROM = np.load(data_path + "Phi_NiTROM.npy")
-#     Psi_NiTROM = np.load(data_path + "Psi_NiTROM.npy")
-#     npzfile = np.load(data_path + "Tensors_NiTROM.npz")
-#     Tensors_NiTROM = (
-#         npzfile['arr_0'],
-#         npzfile['arr_1'],
-#         npzfile['arr_2'],
-#         npzfile['arr_3'],
-#         npzfile['arr_4'],
-#         npzfile['arr_5']
-#     )
-#     point = (Phi_NiTROM, Psi_NiTROM) + Tensors_NiTROM[:-2]
-
-
-# if k0 == 0:
-#     costvec_NiTROM = []
-#     gradvec_NiTROM = []
-
-# for k in range(k0, k0 + kouter):
-
-#     if training_objects == "tensors_and_bases":
-
-#         if np.mod(k, 2) == 0:
-#             which_fix = 'fix_bases'
-#             inner_iter = kinner_tensor
-#             line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor_tensor, # how much to reduce the step size in each iteration
-#                                             sufficient_decrease = sufficient_decrease_rate_tensor, # how much decrease is enough to accept the step
-#                                             max_iterations = max_iterations,
-#                                             initial_step_size = initial_step_size_tensor)
-#         else:
-#             which_fix = 'fix_tensors'
-#             inner_iter = kinner_basis
-#             line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor_basis, # how much to reduce the step size in each iteration
-#                                             sufficient_decrease = sufficient_decrease_rate_basis, # how much decrease is enough to accept the step
-#                                             max_iterations = max_iterations,
-#                                             initial_step_size = initial_step_size_basis)
-#     elif training_objects == "tensors":
-#         # for the control group, always optimize the tensors
-#         which_fix = 'fix_bases'
-#         inner_iter = kinner_tensor
-#         line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor_tensor, # how much to reduce the step size in each iteration
-#                                         sufficient_decrease = sufficient_decrease_rate_tensor, # how much decrease is enough to accept the step
-#                                         max_iterations = max_iterations,
-#                                         initial_step_size = initial_step_size_tensor)
+# Choose between POD-Galerkin initialization and previous training results
+if initialization == "POD-Galerkin":
+    print("Loading POD-Galerkin results as initialization")
+    point = (Phi_POD_w, Psi_POD_w) + Tensors_POD_w[:-2]
+    fname_Phi_NiTROM_old = data_path + "Phi_NiTROM_weighted_old.npy"
+    np.save(fname_Phi_NiTROM_old,Phi_POD_w)
+    fname_Psi_NiTROM_old = data_path + "Psi_NiTROM_weighted_old.npy"
+    np.save(fname_Psi_NiTROM_old,Psi_POD_w)
+    fname_Tensors_NiTROM_old = data_path + "Tensors_NiTROM_weighted_old.npz"
+    np.savez(fname_Tensors_NiTROM_old, *Tensors_POD_w)
     
-#     opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
-#     opt_obj_kwargs = {
-#     'sol_template_dx': pool.sol_template_dx,
-#     'sol_template_dxx': pool.sol_template_dxx,
-#     'spatial_derivative_method': fom.take_derivative,
-#     'inner_product_method': fom.inner_product,
-#     'outer_product_method': fom.outer_product,
-#     'relative_weight': relative_weight,
-#     'which_fix': which_fix}
-#     opt_obj = classes.optimization_objects(*opt_obj_inputs,**opt_obj_kwargs)
-    
-#     print("Optimizing (%d/%d) with which_fix = %s"%(k+1,kouter,opt_obj.which_fix))
-    
-#     cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
-#     problem = pymanopt.Problem(M,cost,euclidean_gradient=grad)
-#     optimizer = optimizers.ConjugateGradient(max_iterations=inner_iter,min_step_size=1e-20,max_time=3600,\
-#                                               line_searcher=line_searcher,log_verbosity=1,verbosity=2)
-#     result = optimizer.run(problem,initial_point=point)
-#     point = result.point
-
-#     Phi_NiTROM = point[0]
-#     Psi_NiTROM = point[1]
-
-#     ## Compute the difference between Phi and Psi using the method of principle angles
-
-#     Q_Phi = np.linalg.qr(Phi_NiTROM)[0]
-#     Q_Psi = np.linalg.qr(Psi_NiTROM)[0]
-#     cos_thetas = np.linalg.svd(Q_Phi.T@Q_Psi, compute_uv=False)
-#     print(cos_thetas)
-
-#     itervec_NiTROM_k = result.log["iterations"]["iteration"]
-#     costvec_NiTROM_k = result.log["iterations"]["cost"]
-#     gradvec_NiTROM_k = result.log["iterations"]["gradient_norm"]
-
-#     if k == 0:
-#         costvec_NiTROM.extend(costvec_NiTROM_k)
-#         gradvec_NiTROM.extend(gradvec_NiTROM_k)
-#     else:
-#         costvec_NiTROM.extend(costvec_NiTROM_k[1:])
-#         gradvec_NiTROM.extend(gradvec_NiTROM_k[1:])
+elif initialization == "Previous NiTROM":
+    print("Loading previous NiTROM results as initialization (for curriculum learning)")
+    if NiTROM_coeff_version == "new":
+        Phi_NiTROM_w = np.load(data_path + "Phi_NiTROM_weighted.npy")
+        if Phi_NiTROM_w.shape[1] != r:
+            raise ValueError("The loaded Phi_NiTROM_weighted has shape %s, which does not match the specified r = %d"%(str(Phi_NiTROM_w.shape), r))
         
-# opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
-# opt_obj_kwargs = {
-#     'sol_template_dx': pool.sol_template_dx,
-#     'sol_template_dxx': pool.sol_template_dxx,
-#     'spatial_derivative_method': fom.take_derivative,
-#     'inner_product_method': fom.inner_product,
-#     'outer_product_method': fom.outer_product,
-#     'relative_weight': relative_weight,
-#     'which_fix': 'fix_none'}
-# opt_obj = classes.optimization_objects(*opt_obj_inputs,**opt_obj_kwargs)
-# cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
-# problem = pymanopt.Problem(M,cost,euclidean_gradient=grad)
-# # check_gradient(problem,x=point)
+        Psi_NiTROM_w = np.load(data_path + "Psi_NiTROM_weighted.npy")
+        npzfile = np.load(data_path + "Tensors_NiTROM_weighted.npz")
+        Tensors_NiTROM_w = (
+            npzfile['arr_0'],
+            npzfile['arr_1'],
+            npzfile['arr_2'],
+            npzfile['arr_3']
+        )
+        point = (Phi_NiTROM_w, Psi_NiTROM_w) + Tensors_NiTROM_w[:-2]
+        fname_Phi_NiTROM_old = data_path + "Phi_NiTROM_weighted_old.npy"
+        np.save(fname_Phi_NiTROM_old,Phi_NiTROM_w)
+        fname_Psi_NiTROM_old = data_path + "Psi_NiTROM_weighted_old.npy"
+        np.save(fname_Psi_NiTROM_old,Psi_NiTROM_w)
+        fname_Tensors_NiTROM_old = data_path + "Tensors_NiTROM_weighted_old.npz"
+        np.savez(fname_Tensors_NiTROM_old, *Tensors_NiTROM_w)
+    elif NiTROM_coeff_version == "old":
+        Phi_NiTROM_w = np.load(data_path + "Phi_NiTROM_weighted_old.npy")
+        if Phi_NiTROM_w.shape[1] != r:
+            raise ValueError("The loaded Phi_NiTROM_weighted has shape %s, which does not match the specified r = %d"%(str(Phi_NiTROM_w.shape), r))
+        
+        Psi_NiTROM_w = np.load(data_path + "Psi_NiTROM_weighted_old.npy")
+        npzfile = np.load(data_path + "Tensors_NiTROM_weighted_old.npz")
+        Tensors_NiTROM_w = (
+            npzfile['arr_0'],
+            npzfile['arr_1'],
+            npzfile['arr_2'],
+            npzfile['arr_3']
+        )
+        point = (Phi_NiTROM_w, Psi_NiTROM_w) + Tensors_NiTROM_w[:-2]    
+
+if k0 == 0:
+    costvec_NiTROM = []
+    gradvec_NiTROM = []
+    
+for k in range(k0, k0 + kouter):
+    
+    relative_weight_c = update_relative_weights(initial_relative_weight_c, final_relative_weight_c, sigmoid_steepness_c_weight, k - k0, kouter)
+    relative_weight_cdot = update_relative_weights(initial_relative_weight_cdot, final_relative_weight_cdot, sigmoid_steepness_cdot_weight, k - k0, kouter)
+    sufficient_decrease_rate = initial_sufficient_decrease_rate * (sufficient_decrease_rate_decay ** (k - k0))
+    step_size = initial_step_size * (initial_step_size_decrease_rate ** (k - k0))
+    
+    if pool.rank == 0:
+        print("NiTROM training iteration %d/%d, progress: %.2f, relative weight c: %.4e, relative weight cdot: %.4e, sufficient decrease rate: %.3e"%(k+1, k0 + kouter, (k - k0) / kouter * 100, relative_weight_c, relative_weight_cdot, sufficient_decrease_rate))
+
+    if training_objects == "tensors_and_bases":
+
+        if np.mod(k, 2) == 0:
+            which_fix = 'fix_bases'
+            inner_iter = kinner_tensor
+            line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor_tensor, # how much to reduce the step size in each iteration
+                                            sufficient_decrease = sufficient_decrease_rate_tensor, # how much decrease is enough to accept the step
+                                            max_iterations = max_iterations,
+                                            initial_step_size = initial_step_size_tensor)
+        else:
+            which_fix = 'fix_tensors'
+            inner_iter = kinner_basis
+            line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor_basis, # how much to reduce the step size in each iteration
+                                            sufficient_decrease = sufficient_decrease_rate_basis, # how much decrease is enough to accept the step
+                                            max_iterations = max_iterations,
+                                            initial_step_size = initial_step_size_basis)
+    elif training_objects == "tensors":
+        # for the control group, always optimize the tensors
+        which_fix = 'fix_bases'
+        inner_iter = kinner_tensor
+        line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor_tensor, # how much to reduce the step size in each iteration
+                                        sufficient_decrease = sufficient_decrease_rate_tensor, # how much decrease is enough to accept the step
+                                        max_iterations = max_iterations,
+                                        initial_step_size = initial_step_size_tensor)
+        
+    elif training_objects == "no_alternating":
+        which_fix = 'fix_none'
+        inner_iter = kinner_tensor + kinner_basis
+        line_searcher = myAdaptiveLineSearcher(contraction_factor = contraction_factor, # how much to reduce the step size in each iteration
+                                        sufficient_decrease = sufficient_decrease_rate, # how much decrease is enough to accept the step
+                                        max_iterations = max_iterations,
+                                        initial_step_size = step_size)
+    
+    opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
+    opt_obj_kwargs = {
+    'X_template_dx': pool.X_template_dx,
+    'X_template_dxx': pool.X_template_dxx,
+    'spatial_deriv_method': fom.diff_x,
+    'inner_product_method': fom.inner_product,
+    'outer_product_method': fom.outer_product,
+    'spatial_shift_method': fom.shift,
+    'which_fix': which_fix,
+    'relative_weight_c': relative_weight_c,
+    'relative_weight_cdot': relative_weight_cdot,
+    'weight_decay_rate': weight_decay_rate
+    }
+    opt_obj = classes.optimization_objects(*opt_obj_inputs,**opt_obj_kwargs)
+    
+    print("Optimizing (%d/%d) with which_fix = %s"%(k+1,kouter,opt_obj.which_fix))
+    
+    cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
+    problem = pymanopt.Problem(M,cost,euclidean_gradient=grad)
+    optimizer = optimizers.ConjugateGradient(max_iterations=inner_iter,min_step_size=1e-20,max_time=3600,\
+                                              line_searcher=line_searcher,log_verbosity=1,verbosity=2)
+    result = optimizer.run(problem,initial_point=point)
+    point = result.point
+
+    Phi_NiTROM = point[0]
+    Psi_NiTROM = point[1]
+
+    ## Compute the difference between Phi and Psi using the method of principle angles
+
+    Q_Phi = np.linalg.qr(Phi_NiTROM)[0]
+    Q_Psi = np.linalg.qr(Psi_NiTROM)[0]
+    cos_thetas = np.linalg.svd(Q_Phi.T@Q_Psi, compute_uv=False)
+    print(cos_thetas)
+
+    itervec_NiTROM_k = result.log["iterations"]["iteration"]
+    costvec_NiTROM_k = result.log["iterations"]["cost"]
+    gradvec_NiTROM_k = result.log["iterations"]["gradient_norm"]
+
+    if k == 0:
+        costvec_NiTROM.extend(costvec_NiTROM_k)
+        gradvec_NiTROM.extend(gradvec_NiTROM_k)
+    else:
+        costvec_NiTROM.extend(costvec_NiTROM_k[1:])
+        gradvec_NiTROM.extend(gradvec_NiTROM_k[1:])
+        
+opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
+opt_obj_kwargs = {
+'X_template_dx': pool.X_template_dx,
+'X_template_dxx': pool.X_template_dxx,
+'spatial_deriv_method': fom.spatial_deriv,
+'inner_product_method': fom.inner_product,
+'outer_product_method': fom.outer_product,
+'spatial_shift_method': fom.shift,
+'which_fix': which_fix,
+'relative_weight_c': relative_weight_c,
+'relative_weight_cdot': relative_weight_cdot,
+'weight_decay_rate': weight_decay_rate
+}
+opt_obj = classes.optimization_objects(*opt_obj_inputs,**opt_obj_kwargs)
+cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
+problem = pymanopt.Problem(M,cost,euclidean_gradient=grad)
+check_gradient(problem,x=point)
 
 # Phi_NiTROM, Psi_NiTROM = point[0:2]
 # Tensors_NiTROM_trainable = tuple(point[2:])

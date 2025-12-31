@@ -216,7 +216,7 @@ class LNS:
         dv_dx = self.diff_x(v, order)
         deta_dx = self.diff_x(eta, order)
         
-        return np.concatenate((dv_dx.flatten(), deta_dx.flatten()))
+        return np.concatenate((dv_dx.ravel(), deta_dx.ravel()))
     
     def diff_z(self, u, order):
         """Compute the spatial derivative of the 3D field u(x, y, z) of order 'order' in z direction.
@@ -633,6 +633,17 @@ class LNS:
         u_tilde = self.FFT_1D(u, axis=0)
         u_tilde_shifted = u_tilde * np.exp(2j * np.pi * self.mode_idx_x.reshape(-1, 1, 1) * (-c) / self.Lx)
         return self.IFFT_1D(u_tilde_shifted, axis=0)
+    
+    def shift_x_state(self, q_vec, c):
+        """Shift the FOM state q_vec (2*nx*ny*nz, ) by amount c in x direction to get q_vec shifted.
+        """
+        v = q_vec[:self.nx * self.ny * self.nz].reshape(self.nx, self.ny, self.nz)
+        eta = q_vec[self.nx * self.ny * self.nz:].reshape(self.nx, self.ny, self.nz)
+        
+        v_shifted = self.shift_x_input_3D(v, c)
+        eta_shifted = self.shift_x_input_3D(eta, c)
+        
+        return np.concatenate((v_shifted.ravel(), eta_shifted.ravel()))
 
     def shift_z_input_3D(self, u, c):
         """Shift the 3D field u(x, y, z) by amount c in z direction to get u(x, y, z - c).

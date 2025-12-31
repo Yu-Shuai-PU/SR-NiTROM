@@ -239,6 +239,7 @@ class optimization_objects:
         self.X_fitted = mpi_pool.X_fitted[which_trajs,:,:]
         self.X_fitted_weighted = mpi_pool.X_fitted_weighted[which_trajs,:,:]
         self.F = mpi_pool.F[:,which_trajs]
+        self.F_weighted = mpi_pool.F_weighted[:,which_trajs]
         self.c = mpi_pool.c[which_trajs,:]
         self.cdot = mpi_pool.cdot[which_trajs,:]
         self.time = mpi_pool.time[which_times]
@@ -376,7 +377,7 @@ class optimization_objects:
             cdot_denom_linear = operators[-2]
             udx_linear = operators[-1]
             cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
-            print("time = ", t, "cdot_denom", cdot_denom)
+            # print("time = ", t, "cdot_denom", cdot_denom)
             # print("cdot_denom:", cdot_denom)
             if abs(cdot_denom) < self.cdot_denom_threshold:
                 # raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
@@ -413,7 +414,7 @@ class optimization_objects:
             Optional keyword arguments:
                 'forcing_interp':   a scipy interpolator f that gives us a forcing f(t)
         """
-        print(f"evaluate_rom_unreduced_rhs called at time t = {t}, z_magnitude = {np.linalg.norm(z)}")
+        # print(f"evaluate_rom_unreduced_rhs called at time t = {t}, z_magnitude = {np.linalg.norm(z)}")
 
         if np.linalg.norm(z) >= self.state_mag_threshold:
             dzdt = 0.0*z
@@ -438,7 +439,7 @@ class optimization_objects:
         """
         cdot_denom_linear = operators[-2]
         cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
-        print("cdot_denom:", cdot_denom)
+        # print("cdot_denom:", cdot_denom)
         if abs(cdot_denom) < self.cdot_denom_threshold:
             # raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
             print("Warning: Denominator in reconstruction equation of the shifting speed is too close to zero! Modified shift speed to zero.")
@@ -451,7 +452,7 @@ class optimization_objects:
                 operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
                 cdot_numer -= np.einsum(equation,*operands)
                 
-            print("cdot:", cdot_numer/cdot_denom)
+            # print("cdot:", cdot_numer/cdot_denom)
             return cdot_numer/cdot_denom
     
     def compute_shift_speed_numer(self, z, operators):

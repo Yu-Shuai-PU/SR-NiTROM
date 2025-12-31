@@ -128,6 +128,12 @@ class mpi_pool:
         if fname_forcing != None:
             self.fnames_forcing = [(fname_forcing)%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
             for k in range (self.my_n_traj):  self.F[:,k] = np.load(self.fnames_forcing[k])
+            
+        fname_forcing_weighted = kwargs.get('fname_steady_forcing_weighted',None)
+        self.F_weighted = np.zeros((self.N, self.my_n_traj))
+        if fname_forcing_weighted != None:
+            self.fnames_forcing_weighted = [(fname_forcing_weighted)%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
+            for k in range (self.my_n_traj):  self.F_weighted[:,k] = np.load(self.fnames_forcing_weighted[k])
 
     def load_time_derivatives(self,kwargs):
         

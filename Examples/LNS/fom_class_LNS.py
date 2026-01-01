@@ -273,6 +273,66 @@ class LNS:
 
         return np.real(final_result)
     
+    def compute_PSD(self, q_vec_snapshots):
+        """
+        Compute the Power Spectral Density (PSD) for a batch of snapshots.
+        
+        Input: q_vec_snapshots of shape (2 * nx * ny * nz, N_snapshots)
+        Output: PSD of shape (nx, nz, N_snapshots), storing the energy at each (kx, kz) mode.
+        
+        PSD(kx, kz) = 1/(2 * alpha^2 + 2 * beta^2) * \int_-1^1 (|dv_breve_km/dy|^2 + (alpha^2 + beta^2) |v_breve_km|^2 + |eta_breve_km|^2) dy
+        """
+        
+        N_snapshots = q_vec_snapshots.shape[1]
+        
+        # 初始化 PSD 累加器 (shape: nx, nz)
+        PSD = np.zeros((self.nx, self.nz, N_snapshots))
+        
+        # 为了积分，调整权重形状以利用广播机制: (1, ny, 1)
+        w = self.Clenshaw_Curtis_weights[None, :, None]
+        
+        # 2. 遍历每一个 snapshot (为了节省内存，逐个处理)
+        for m in range(N_snapshots):
+            # 提取当前快照并拆分为 v 和 eta
+            q_vec = q_vec_snapshots[:, m]
+            v_phys = q_vec[:self.nx * self.ny * self.nz].reshape(self.nx, self.ny, self.nz)
+            eta_phys = q_vec[self.nx * self.ny * self.nz:].reshape(self.nx, self.ny, self.nz)
+            
+            # 变换到谱空间 (kx, y, kz)
+            # 使用类中定义的 FFT_2D (注意它已经包含了fftshift和归一化)
+            v_breve = self.FFT_2D(v_phys)
+            eta_breve = self.FFT_2D(eta_phys)
+            
+            # 计算 dv_breve/dy
+            # v_breve shape: (nx, ny, nz), D1 shape: (ny, ny)
+            # 使用 einsum 进行矩阵乘法: mj (D1的行列), kjl (v的x,y,z) -> kml (结果的x,y,z)
+            dv_dy_breve = np.einsum('mj, kjl -> kml', self.D1, v_breve)
+            
+            # 计算被积函数 (Integrand) 的各个项
+            # Term 1: |dv_breve/dy|^2
+            term1 = np.abs(dv_dy_breve)**2
+            
+            # Term 2: (alpha^2 + beta^2) * |v_breve|^2
+            # self.k_sq 已经在 __init__ 中计算好，形状适配广播
+            term2 = self.k_sq * np.abs(v_breve)**2
+            
+            # Term 3: |eta_breve|^2
+            term3 = np.abs(eta_breve)**2
+            
+            total_integrand = term1 + term2 + term3
+            
+            # 3. 对 y 方向积分 (-1 到 1)
+            # sum( integrand * weights ) along axis 1
+            integral_y = np.sum(total_integrand * w, axis=1) # 结果形状: (nx, nz)
+            
+            # 4. 乘以能量范数因子 1/(2*k^2) 并累加
+            # self.inner_product_factor 已经在 __init__ 中处理了奇异点并设为0
+            PSD[:, :, m] = integral_y * self.inner_product_factor
+
+        # 5. 取时间平均
+        
+        return PSD
+        
     def compute_snapshot_correlation_matrix(self, q_vec_snapshots):
         """
         Efficiently compute the correlation matrix C for a batch of snapshots using vectorized operations.

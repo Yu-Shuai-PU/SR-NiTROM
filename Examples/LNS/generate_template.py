@@ -1,6 +1,8 @@
 import numpy as np 
 import scipy 
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+from matplotlib.animation import FuncAnimation
 from mpi4py import MPI
 
 from scipy.interpolate import interp1d
@@ -58,9 +60,9 @@ Lx = 32
 Ly = 2 # from -1 to 1
 Lz = 16
 
-nx = 64
-ny = 65 # ny includes the boundary points when using Chebyshev grid
-nz = 64
+nx = 32
+ny = 33 # ny includes the boundary points when using Chebyshev grid
+nz = 32
 
 x = np.linspace(0, Lx, num=nx, endpoint=False)
 y = np.cos(np.pi * np.linspace(0, ny - 1, num=ny) / (ny - 1))  # Chebyshev grid in y direction, location from 1 to -1
@@ -103,6 +105,97 @@ eta0 = fom.diff_x(fom.diff_1_y(psi0), order = 1)
 print("Running the benchmark simulation")
 traj_init = np.concatenate((v0.ravel(), eta0.ravel()))
 traj, tsave = tstep_kse_fom.time_step(traj_init, nsave) # traj is in the physical domain and is of the shape (2 * nx * ny * nz, nsave_samples)
+traj_PSD = fom.compute_PSD(traj) ### Compute the Power Spectral Density (PSD) of the trajectory for various wavenumbers (kx, kz), which will be a pcolormesh plot later of (kx, kz, PSD(kx, kz, N_snapshots))
+
+kx = fom.kx
+kz = fom.kz
+KX, KZ = np.meshgrid(kx, kz, indexing='ij')
+# plt.pcolormesh(KX, KZ, np.log10(traj_PSD.T), shading='auto', cmap='Blues')
+# plt.colorbar(label=r'$\log_{10}(\mathrm{PSD})$')
+# plt.xlabel(r'$k_x$')
+# plt.ylabel(r'$k_z$')
+# plt.title('Power Spectral Density (PSD) of the benchmark trajectory')
+# plt.xlim(np.min(kx), np.max(kx))
+# plt.ylim(np.min(kz), np.max(kz))
+# plt.tight_layout()
+# plt.show()
+
+# 只画关键的几条线：1%, 0.01%, 10^-6, 10^-10
+# levels = [1e-10, 1e-6, 1e-4, 1e-2, 0.1, 0.5]
+# # 归一化 psd
+# traj_PSD_normalized = traj_PSD / np.sum(traj_PSD)
+
+# CS = plt.contour(KX, KZ, traj_PSD_normalized.T, levels=levels, colors='k', linewidths=0.5)
+# plt.clabel(CS, inline=1, fontsize=8, fmt='%1.0e')
+
+# # 填充颜色增强视觉
+# plt.contourf(KX, KZ, traj_PSD_normalized.T, levels=levels, cmap='inferno_r', alpha=0.5)
+# # 画出你的截断矩形框 (Proposed Grid)
+# # kx_cutoff 对应 Nx=32
+# kxc = 16 * (2*np.pi/fom.Lx)
+# kzc = 16 * (2*np.pi/fom.Lz)
+
+# rect_x = [-kxc, kxc, kxc, -kxc, -kxc]
+# rect_z = [-kzc, -kzc, kzc, kzc, -kzc]
+
+# plt.plot(rect_x, rect_z, 'r--', linewidth=2, label='Proposed Mesh (32x16)')
+
+# plt.xlabel('kx')
+# plt.ylabel('kz')
+# plt.title('Is the energy leaking out of the box?')
+# plt.legend()
+# plt.show()
+
+fig, ax = plt.subplots(figsize=(10, 10))
+
+# --- 1. 定义截断框 (保持不变) ---
+ratio = 2
+kxc = (nx // ratio) * (2*np.pi/fom.Lx)
+kzc = (nz // ratio) * (2*np.pi/fom.Lz)
+# 将这些坐标打包，准备传给 update 函数
+box_coords = ([-kxc, kxc, kxc, -kxc, -kxc], [-kzc, -kzc, kzc, kzc, -kzc])
+
+levels = [1e-16, 1e-14, 1e-12, 1e-10, 1e-6, 1e-4, 1e-2, 0.1, 0.5]
+
+# --- 2. 修改 update 函数以接收参数 ---
+def update(frame, rect_x, rect_z): # 添加了参数接收
+    ax.clear()
+    
+    psd = traj_PSD[:, :, frame]
+    # 归一化：除以当前时刻总能量，关注“形状”
+    total_E = np.sum(psd)
+    if total_E > 0:
+        psd_norm = psd / total_E
+    else:
+        psd_norm = psd
+        
+    # 绘图
+    CS = ax.contour(KX, KZ, psd_norm, levels=levels, colors='k', linewidths=0.5)
+    ax.clabel(CS, inline=1, fontsize=8, fmt='%1.0e')
+    ax.contourf(KX, KZ, psd_norm, levels=levels, cmap='inferno_r', alpha=0.5)
+    
+    # 画出截断框 (使用传入的参数，并增加 zorder)
+    ax.plot(rect_x, rect_z, 'r--', linewidth=2, label='Mesh Limit', zorder=10)
+    
+    # --- 重要：在 clear 后重新添加图例 ---
+    ax.legend(loc='upper right')
+    
+    ax.set_title(f"Time: {tsave[frame]:.2f} | Total Energy: {total_E:.2e}")
+    ax.set_xlabel('kx')
+    ax.set_ylabel('kz')
+    # 固定坐标轴范围，防止抖动
+    ax.set_xlim(kx.min(), kx.max())
+    ax.set_ylim(kz.min(), kz.max())
+
+# --- 3. 在 FuncAnimation 中使用 fargs 传递参数 ---
+# 注意 fargs 需要是一个元组
+anim = FuncAnimation(fig, update, frames=traj_PSD.shape[2], interval=100,
+                     fargs=box_coords) # 将 box_coords 解包传给 rect_x, rect_z
+
+# 保存为 gif
+anim.save('psd_evolution.gif', writer='pillow', fps=10)
+plt.show()
+
 traj_v = traj[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
 traj_eta = traj[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
 

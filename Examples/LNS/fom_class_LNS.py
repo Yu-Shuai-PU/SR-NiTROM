@@ -207,17 +207,6 @@ class LNS:
         factor = (self._deriv_factor_x ** order).reshape(-1, 1, 1)
         return self.IFFT_1D(u_tilde * factor, axis=0)
     
-    # def diff_x_state(self, q_vec, order):
-    #     """Compute the spatial derivative of the FOM state q_vec (2*nx*ny*nz, ) order 'order' in x direction.
-    #     """
-    #     v = q_vec[:self.nx * self.ny * self.nz].reshape(self.nx, self.ny, self.nz)
-    #     eta = q_vec[self.nx * self.ny * self.nz:].reshape(self.nx, self.ny, self.nz)
-        
-    #     dv_dx = self.diff_x(v, order)
-    #     deta_dx = self.diff_x(eta, order)
-        
-    #     return np.concatenate((dv_dx.ravel(), deta_dx.ravel()))
-    
     def diff_z(self, u, order):
         """Compute the spatial derivative of the 3D field u(x, y, z) of order 'order' in z direction.
         """
@@ -891,7 +880,7 @@ class LNS:
     def evaluate_fom_shifting_speed(self, q_fitted_vec, dqdt_unreduced_fitted_vec):
         """Evaluate the shift speed for the FOM."""
         return self.evaluate_fom_shifting_speed_numer(dqdt_unreduced_fitted_vec) / self.evaluate_fom_shifting_speed_denom(q_fitted_vec)
-  
+    
 class time_step_LNS:
     
     def __init__(self, fom, time):

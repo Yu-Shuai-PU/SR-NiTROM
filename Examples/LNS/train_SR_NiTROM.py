@@ -80,9 +80,6 @@ fname_traj = traj_path + "traj_%03d.npy" # for u
 fname_traj_weighted = traj_path + "traj_weighted_%03d.npy" # for u
 fname_traj_fitted = traj_path + "traj_fitted_%03d.npy" # for u fitted
 fname_traj_fitted_weighted = traj_path + "traj_fitted_weighted_%03d.npy" # for u fitted
-fname_weight_traj = traj_path + "weight_traj_%03d.npy"
-fname_weight_shift_amount = traj_path + "weight_shift_amount_%03d.npy"
-fname_weight_shift_speed = traj_path + "weight_shift_speed_%03d.npy"
 fname_deriv = traj_path + "deriv_%03d.npy" # for du/dt
 fname_deriv_weighted = traj_path + "deriv_weighted_%03d.npy" # for du/dt
 fname_deriv_fitted = traj_path + "deriv_fitted_%03d.npy" # for du/dt fitted
@@ -180,7 +177,7 @@ sufficient_decrease_rate_decay = 0.99
 contraction_factor_tensor = 0.6
 contraction_factor_basis = 0.6
 contraction_factor = 0.6
-timespan_percentage_POD = 1.00 # percentage of the entire timespan used for POD, we have 
+timespan_percentage_POD = 1.00 # percentage of the entire timespan used for POD (always use all snapshots for POD)
 timespan_percentage_NiTROM_training = 0.025 # percentage of the entire timespan used for NiTROM training
 snapshot_start_time_idx_POD = 0
 snapshot_end_time_idx_POD = 1 + int(timespan_percentage_POD * (pool.n_snapshots - 1)) # 1001
@@ -368,6 +365,13 @@ if k0 == 0:
     costvec_NiTROM = []
     gradvec_NiTROM = []
     
+### precompute the weight for the norm, the shifting amount and the shifting speed
+which_trajs = np.arange(0, pool.my_n_traj, 1)
+which_times = np.arange(snapshot_start_time_idx_NiTROM_training,snapshot_end_time_idx_NiTROM_training,1)
+opt_obj_inputs = (pool,which_trajs,which_times,leggauss_deg,nsave_rom,poly_comp)
+opt_obj = classes.optimization_objects(*opt_obj_inputs)
+weight_traj, weight_shifting_amount, weight_shifting_speed = opt_obj.initialize_weights(fom)
+    
 for k in range(k0, k0 + kouter):
     
     relative_weight_c = update_relative_weights(initial_relative_weight_c, final_relative_weight_c, sigmoid_steepness_c_weight, k - k0, kouter)
@@ -421,6 +425,7 @@ for k in range(k0, k0 + kouter):
     'weight_decay_rate': weight_decay_rate
     }
     opt_obj = classes.optimization_objects(*opt_obj_inputs,**opt_obj_kwargs)
+    opt_obj.recalibrate_weights(weight_traj, weight_shifting_amount, weight_shifting_speed)
     
     print("Optimizing (%d/%d) with which_fix = %s"%(k+1,kouter,opt_obj.which_fix))
     

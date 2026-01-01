@@ -263,8 +263,8 @@ class optimization_objects:
         # scale the weight accordingly so that the cost function measures
         # the average error over snapshots and trajectories. (Notice that 
         # if all trajectories are loaded, then np.sum(counts) = mpi_pool.n_traj)
-        counts = np.zeros(mpi_pool.size,dtype=np.int64)
-        mpi_pool.comm.Allgather([np.asarray([self.my_n_traj]),MPI.INT],[counts,MPI.INT])
+        self.counts = np.zeros(mpi_pool.size,dtype=np.int64)
+        mpi_pool.comm.Allgather([np.asarray([self.my_n_traj]),MPI.INT],[self.counts,MPI.INT])
         
         # Parse the keyword arguments
         self.which_fix = kwargs.get('which_fix','fix_none')
@@ -294,25 +294,9 @@ class optimization_objects:
             
         self.relative_weight_c = kwargs.get('relative_weight_c',1.0)
         self.relative_weight_cdot = kwargs.get('relative_weight_cdot',1.0)
-        weight_decay_rate = kwargs.get('weight_decay_rate',1.0)
-        decay_factor = weight_decay_rate ** (np.arange(self.n_snapshots))
-        decay_factor = decay_factor / np.sum(decay_factor)
-        
-        self.weights_X = np.zeros((self.my_n_traj,self.n_snapshots))
-        self.weights_c = np.zeros((self.my_n_traj,self.n_snapshots))
-        self.weights_cdot = np.zeros((self.my_n_traj,self.n_snapshots))
-        
-        for idx in range(self.my_n_traj):
-            self.weights_X[idx,:] = 1.0/np.mean(np.linalg.norm(self.X[idx,:,:],axis=0)**2) * decay_factor
-            self.weights_c[idx,:] = 1.0/np.mean((self.c[idx,:] - self.c[idx,0])**2) * decay_factor
-            self.weights_cdot[idx,:] = 1.0/np.mean(self.cdot[idx,:]**2) * decay_factor
-            if np.max(self.weights_c[idx]) > 1e8:
-                raise Warning ("The shift amount for trajectory %d is very small, which makes weight very large (%.4e). \
-                                Consider increasing it to avoid ill-conditioning or give up using symmetry reduction."%(idx+self.disps[mpi_pool.rank], self.weights_c[idx]))
-
-        self.weights_X /= np.sum(counts)*self.n_snapshots
-        self.weights_c *= self.relative_weight_c / (np.sum(counts)*self.n_snapshots)
-        self.weights_cdot *= self.relative_weight_cdot / (np.sum(counts)*self.n_snapshots)    
+        self.weight_decay_rate = kwargs.get('weight_decay_rate',1.0)
+        self.decay_factor = self.weight_decay_rate ** (np.arange(self.n_snapshots))
+        self.decay_factor = self.decay_factor / np.sum(self.decay_factor)
         
         self.X_template_dx = mpi_pool.X_template_dx
         self.X_template_dx_weighted = mpi_pool.X_template_dx_weighted
@@ -323,6 +307,40 @@ class optimization_objects:
         
         self.state_mag_threshold = 1e4
         self.cdot_denom_threshold = 1e-15
+        
+    def initialize_weights(self, fom):
+        
+        weight_traj = np.zeros(self.my_n_traj)
+        weight_shifting_amount = np.zeros(self.my_n_traj)
+        weight_shifting_speed = np.zeros(self.my_n_traj)
+        
+        for idx in range(self.my_n_traj):
+            weight_traj[idx] = 1.0/np.mean(np.linalg.norm(self.X_weighted[idx,:,:],axis=0)**2)
+            weight_shifting_amount[idx] = 1.0/fom.Lx ** 2
+            weight_shifting_speed[idx] = 1.0/np.mean((self.cdot[idx,:] - np.mean(self.cdot[idx,:]))**2)
+            if np.max(weight_shifting_amount[idx]) > 1e8:
+                raise Warning ("The shift amount for trajectory %d is very small, which makes weight very large (%.4e). \
+                                Consider increasing it to avoid ill-conditioning or give up using symmetry reduction."%(idx+self.disps[mpi_pool.rank], self.weights_c[idx])) 
+        
+        return weight_traj, weight_shifting_amount, weight_shifting_speed
+        
+    def recalibrate_weights(self, weight_traj, weight_shifting_amount, weight_shifting_speed):
+        
+        self.weights_X = np.zeros((self.my_n_traj,self.n_snapshots))
+        self.weights_c = np.zeros((self.my_n_traj,self.n_snapshots))
+        self.weights_cdot = np.zeros((self.my_n_traj,self.n_snapshots))
+                
+        for idx in range(self.my_n_traj):
+            self.weights_X[idx,:] = weight_traj[idx] * self.decay_factor
+            self.weights_c[idx,:] = weight_shifting_amount[idx] * self.decay_factor
+            self.weights_cdot[idx,:] = weight_shifting_speed[idx] * self.decay_factor
+            if np.max(self.weights_c[idx]) > 1e8:
+                raise Warning ("The shift amount for trajectory %d is very small, which makes weight very large (%.4e). \
+                                Consider increasing it to avoid ill-conditioning or give up using symmetry reduction."%(idx+self.disps[mpi_pool.rank], self.weights_c[idx]))
+
+        self.weights_X /= np.sum(self.counts)*self.n_snapshots
+        self.weights_c *= self.relative_weight_c / (np.sum(self.counts)*self.n_snapshots)
+        self.weights_cdot *= self.relative_weight_cdot / (np.sum(self.counts)*self.n_snapshots)    
         
     def generate_einsum_subscripts_rhs_poly(self):
         """

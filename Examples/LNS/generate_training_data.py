@@ -66,9 +66,6 @@ fname_traj = traj_path + "traj_%03d.npy" # for u
 fname_traj_weighted = traj_path + "traj_weighted_%03d.npy" # for u
 fname_traj_fitted = traj_path + "traj_fitted_%03d.npy" # for u fitted
 fname_traj_fitted_weighted = traj_path + "traj_fitted_weighted_%03d.npy" # for u fitted
-fname_weight_traj = traj_path + "weight_traj_%03d.npy"
-fname_weight_shift_amount = traj_path + "weight_shift_amount_%03d.npy"
-fname_weight_shift_speed = traj_path + "weight_shift_speed_%03d.npy"
 fname_deriv = traj_path + "deriv_%03d.npy" # for du/dt
 fname_deriv_weighted = traj_path + "deriv_weighted_%03d.npy" # for du/dt
 fname_deriv_fitted = traj_path + "deriv_fitted_%03d.npy" # for du/dt fitted
@@ -165,14 +162,6 @@ for k in range (pool.my_n_traj):
         deriv_eta_3D_fitted = fom.shift_x_input_3D(deriv_eta_3D, -shifting_amount[i])
         deriv_fitted[:, i] = np.concatenate((deriv_v_3D_fitted.ravel(), deriv_eta_3D_fitted.ravel()))
         shifting_speed[i] = fom.evaluate_fom_shifting_speed(traj_fitted[:, i], deriv_fitted[:, i])
-        disturbance_energy[i] = fom.inner_product_3D(traj[:, i][0 : nx * ny * nz].reshape((nx, ny, nz)),
-                                                     traj[:, i][nx * ny * nz : ].reshape((nx, ny, nz)),
-                                                     traj[:, i][0 : nx * ny * nz].reshape((nx, ny, nz)),
-                                                     traj[:, i][nx * ny * nz : ].reshape((nx, ny, nz)))
-        
-    weight_traj = 1.0/np.mean(disturbance_energy)
-    weight_shifting_amount = 1.0/Lx**2
-    weight_shifting_speed = 1.0/np.mean((shifting_speed - np.mean(shifting_speed))**2)
         
     plt.plot(tsave, shifting_amount)
     plt.xlabel("Time")
@@ -203,9 +192,6 @@ for k in range (pool.my_n_traj):
     np.save(fname_deriv_fitted_weighted%traj_idx, fom.apply_sqrt_inner_product_weight(deriv_fitted))
     np.save(fname_shift_amount%traj_idx, shifting_amount)
     np.save(fname_shift_speed%traj_idx, shifting_speed)
-    np.save(fname_weight_traj%traj_idx, weight_traj)
-    np.save(fname_weight_shift_amount%traj_idx, weight_shifting_amount)
-    np.save(fname_weight_shift_speed%traj_idx, weight_shifting_speed)
     
     traj_v = traj[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
     traj_eta = traj[nx * ny * nz : , :].reshape((nx, ny, nz, -1))

@@ -51,18 +51,6 @@ os.makedirs(fig_path, exist_ok=True)
 fname_traj_template = data_path + "traj_template.npy"
 fname_traj_template_dx = data_path + "traj_template_dx.npy"
 fname_traj_template_dxx = data_path + "traj_template_dxx.npy"
-fname_traj_init = data_path + "traj_init_%03d.npy" # for initial condition of u
-fname_traj_init_fitted = data_path + "traj_init_fitted_%03d.npy" # for initial condition of u fitted
-fname_traj = traj_path + "traj_%03d.npy" # for u
-fname_traj_fitted = traj_path + "traj_fitted_%03d.npy" # for u fitted
-fname_weight_traj = traj_path + "weight_traj_%03d.npy"
-fname_weight_shift_amount = traj_path + "weight_shift_amount_%03d.npy"
-fname_weight_shift_speed = traj_path + "weight_shift_speed_%03d.npy"
-fname_deriv = traj_path + "deriv_%03d.npy" # for du/dt
-fname_deriv_fitted = traj_path + "deriv_fitted_%03d.npy" # for du/dt fitted
-fname_shift_amount = traj_path + "shift_amount_%03d.npy" # for shifting amount
-fname_shift_speed = traj_path + "shift_speed_%03d.npy" # for shifting speed
-fname_time = traj_path + "time.npy"
 
 ### First, we try to set up the initial localized disturbance
 

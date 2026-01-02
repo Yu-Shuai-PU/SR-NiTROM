@@ -7,7 +7,7 @@ def plot_ROM_vs_FOM(opt_obj, traj_idx, fig_path, relative_error, relative_error_
                     shifting_speed_SRG, shifting_speed_FOM,
                     traj_fitted_proj, sol_SRG,
                     traj_FOM, traj_fitted_FOM, traj_SRG, traj_fitted_SRG, num_modes_to_plot,
-                    nx, ny, nz, dt, nsave, x, y, z):
+                    nx, ny, nz, dt, nsave, x, y, z, t_check_list, y_check):
 
 
     plt.figure(figsize=(10,6))
@@ -95,9 +95,6 @@ def plot_ROM_vs_FOM(opt_obj, traj_idx, fig_path, relative_error, relative_error_
     traj_SRG_eta = traj_SRG[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
     traj_fitted_SRG_v = traj_fitted_SRG[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
     traj_fitted_SRG_eta = traj_fitted_SRG[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
-    
-    t_check_list = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 190.0, 200.0]
-    y_check = -0.56
     
     v_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list)))
     eta_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list)))

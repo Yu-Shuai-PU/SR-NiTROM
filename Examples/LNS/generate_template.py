@@ -14,10 +14,8 @@ import os
 sys.path.append("../../PyManopt_Functions/")
 sys.path.append("../../Optimization_Functions/")
 
-import classes
+import configs
 import fom_class_LNS
-from fom_class_LNS import Chebyshev_diff_mat as diff_y_mat
-from fom_class_LNS import Chebyshev_diff_FFT as diff_y
 
 """
 Generate the snapshots of 3D linearized NS equations for channel flow
@@ -41,61 +39,16 @@ Current progress:
 """
 
 # region 1: Initialization
-
-traj_path = "./trajectories/"
-data_path = "./data/"
-fig_path  = "./figures/"
-os.makedirs(traj_path, exist_ok=True)
-os.makedirs(data_path, exist_ok=True)
-os.makedirs(fig_path, exist_ok=True)
-
-#%% # Generate and save trajectory
-fname_traj_template = data_path + "traj_template.npy"
-fname_traj_template_dx = data_path + "traj_template_dx.npy"
-fname_traj_template_dxx = data_path + "traj_template_dxx.npy"
-
-### First, we try to set up the initial localized disturbance
-
-Lx = 48
-Ly = 2 # from -1 to 1
-Lz = 24
-
-nx = 64
-ny = 65 # ny includes the boundary points when using Chebyshev grid
-nz = 64
-
-x = np.linspace(0, Lx, num=nx, endpoint=False)
-y = np.cos(np.pi * np.linspace(0, ny - 1, num=ny) / (ny - 1))  # Chebyshev grid in y direction, location from 1 to -1
-z = np.linspace(0, Lz, num=nz, endpoint=False)
-
-X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
-
-Re = 3000
-# Define the base flow
-U_base = 1 - y**2
-U_base_dy = -2 * y
-U_base_dyy = -2 * np.ones_like(y)
-
-T = 200
-dt = 0.5
-nsave = 2 # sample interval
-time = dt * np.linspace(0, int(T/dt), int(T/dt) + 1, endpoint=True)
-tsave = time[::nsave]
-
-fom = fom_class_LNS.LNS(Lx, Ly, Lz, nx, ny, nz, y, Re, U_base, U_base_dy, U_base_dyy)
-time = dt * np.linspace(0, int(T/dt), int(T/dt) + 1, endpoint=True)
-tstep_kse_fom = fom_class_LNS.time_step_LNS(fom, time)
-
-small_amp  = 0.0001
-medium_amp = 0.0699
-large_amp  = 0.1398
-
-amp = 1.0
-
-psi0 = amp * (1-Y**2)**2 * ((X - Lx/2)/2) * (Z - Lz/2) ** 2 * np.exp(-((X - Lx/2)/2)**2 - ((Z - Lz/2)/2)**2)
+params = configs.load_configs()
+fom = fom_class_LNS.LNS(params.Lx, params.Ly, params.Lz, 
+                        params.nx, params.ny, params.nz,
+                        params.y, params.Re,
+                        params.U_base, params.U_base_dy, params.U_base_dyy)
+tstep_kse_fom = fom_class_LNS.time_step_LNS(fom, params.time)
+psi0 = params.amp * (1 - params.Y**2)**2 * ((params.X - params.Lx/2)/2) * (params.Z - params.Lz/2)**2 * np.exp(-((params.X - params.Lx/2)/2)**2 - ((params.Z - params.Lz/2)/2)**2)
 v0 = fom.diff_z(psi0, order = 1)
 eta0 = fom.diff_x(fom.diff_1_y(psi0), order = 1)
-  
+
 # endregion
 
 # region 2: Simulations
@@ -104,54 +57,18 @@ eta0 = fom.diff_x(fom.diff_1_y(psi0), order = 1)
 
 print("Running the benchmark simulation")
 traj_init = np.concatenate((v0.ravel(), eta0.ravel()))
-traj, tsave = tstep_kse_fom.time_step(traj_init, nsave) # traj is in the physical domain and is of the shape (2 * nx * ny * nz, nsave_samples)
+traj, tsave = tstep_kse_fom.time_step(traj_init, params.nsave) # traj is in the physical domain and is of the shape (2 * nx * ny * nz, nsave_samples)
 traj_PSD = fom.compute_PSD(traj) ### Compute the Power Spectral Density (PSD) of the trajectory for various wavenumbers (kx, kz), which will be a pcolormesh plot later of (kx, kz, PSD(kx, kz, N_snapshots))
 
 kx = fom.kx
 kz = fom.kz
 KX, KZ = np.meshgrid(kx, kz, indexing='ij')
-# plt.pcolormesh(KX, KZ, np.log10(traj_PSD.T), shading='auto', cmap='Blues')
-# plt.colorbar(label=r'$\log_{10}(\mathrm{PSD})$')
-# plt.xlabel(r'$k_x$')
-# plt.ylabel(r'$k_z$')
-# plt.title('Power Spectral Density (PSD) of the benchmark trajectory')
-# plt.xlim(np.min(kx), np.max(kx))
-# plt.ylim(np.min(kz), np.max(kz))
-# plt.tight_layout()
-# plt.show()
-
-# 只画关键的几条线：1%, 0.01%, 10^-6, 10^-10
-# levels = [1e-10, 1e-6, 1e-4, 1e-2, 0.1, 0.5]
-# # 归一化 psd
-# traj_PSD_normalized = traj_PSD / np.sum(traj_PSD)
-
-# CS = plt.contour(KX, KZ, traj_PSD_normalized.T, levels=levels, colors='k', linewidths=0.5)
-# plt.clabel(CS, inline=1, fontsize=8, fmt='%1.0e')
-
-# # 填充颜色增强视觉
-# plt.contourf(KX, KZ, traj_PSD_normalized.T, levels=levels, cmap='inferno_r', alpha=0.5)
-# # 画出你的截断矩形框 (Proposed Grid)
-# # kx_cutoff 对应 Nx=32
-# kxc = 16 * (2*np.pi/fom.Lx)
-# kzc = 16 * (2*np.pi/fom.Lz)
-
-# rect_x = [-kxc, kxc, kxc, -kxc, -kxc]
-# rect_z = [-kzc, -kzc, kzc, kzc, -kzc]
-
-# plt.plot(rect_x, rect_z, 'r--', linewidth=2, label='Proposed Mesh (32x16)')
-
-# plt.xlabel('kx')
-# plt.ylabel('kz')
-# plt.title('Is the energy leaking out of the box?')
-# plt.legend()
-# plt.show()
-
 fig, ax = plt.subplots(figsize=(10, 10))
 
-# --- 1. 定义截断框 (保持不变) ---
+# --- 1. 定义截断框 (保持不变, ratio = 2 是不进行截断) ---
 ratio = 2
-kxc = (nx // ratio) * (2*np.pi/fom.Lx)
-kzc = (nz // ratio) * (2*np.pi/fom.Lz)
+kxc = (params.nx // ratio) * (2*np.pi/fom.Lx)
+kzc = (params.nz // ratio) * (2*np.pi/fom.Lz)
 # 将这些坐标打包，准备传给 update 函数
 box_coords = ([-kxc, kxc, kxc, -kxc, -kxc], [-kzc, -kzc, kzc, kzc, -kzc])
 
@@ -196,18 +113,15 @@ anim = FuncAnimation(fig, update, frames=traj_PSD.shape[2], interval=100,
 anim.save('psd_evolution.gif', writer='pillow', fps=10)
 plt.show()
 
-traj_v = traj[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-traj_eta = traj[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+traj_v = traj[0 : params.nx * params.ny * params.nz, :].reshape((params.nx, params.ny, params.nz, -1))
+traj_eta = traj[params.nx * params.ny * params.nz : , :].reshape((params.nx, params.ny, params.nz, -1))
 
-t_check_list = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0, 110.0, 120.0, 130.0, 140.0, 150.0, 160.0, 170.0, 180.0, 190.0, 200.0]
-y_check = -0.56
+for t_check in params.t_check_list:
 
-for t_check in t_check_list:
-
-    idx_sample = int(t_check / (dt * nsave))
+    idx_sample = int(t_check / (params.dt * params.nsave))
     v_slice = traj_v[:, :, :, idx_sample]
     eta_slice = traj_eta[:, :, :, idx_sample]
-    idx_y_check = np.argmin(np.abs(y - y_check))
+    idx_y_check = np.argmin(np.abs(params.y - params.y_check))
     v_slice_ycheck = v_slice[:, idx_y_check, :]
     eta_slice_ycheck = eta_slice[:, idx_y_check, :]
 
@@ -223,27 +137,27 @@ for t_check in t_check_list:
     # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
     plt.figure(figsize=(10,6))
     # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
-    plt.pcolormesh(x, z, v_slice_ycheck.T, cmap='bwr')
+    plt.pcolormesh(params.x, params.z, v_slice_ycheck.T, cmap='bwr')
     plt.colorbar()
     plt.xlabel(r"$x$")
     plt.ylabel(r"$z$")
-    plt.xlim(np.min(x), np.max(x))
-    plt.ylim(np.min(z), np.max(z))
-    plt.title(f"Normal velocity v at t={t_check}, y={y_check}")
+    plt.xlim(np.min(params.x), np.max(params.x))
+    plt.ylim(np.min(params.z), np.max(params.z))
+    plt.title(f"Normal velocity v at t={t_check}, y={params.y_check}")
     plt.tight_layout()
     plt.show()
     
     plt.figure(figsize=(10, 6))
     # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
-    cs = plt.contour(x, z, v_slice_ycheck.T, colors='black', linewidths=0.6)
+    cs = plt.contour(params.x, params.z, v_slice_ycheck.T, colors='black', linewidths=0.6)
     # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
     # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
     # plt.colorbar()
     plt.xlabel(r"$x$")
     plt.ylabel(r"$z$")
-    plt.xlim(np.min(x), np.max(x))
-    plt.ylim(np.min(z), np.max(z))
-    plt.title(f"Contours of normal velocity v at t={t_check}, y={y_check}")
+    plt.xlim(np.min(params.x), np.max(params.x))
+    plt.ylim(np.min(params.z), np.max(params.z))
+    plt.title(f"Contours of normal velocity v at t={t_check}, y={params.y_check}")
     plt.tight_layout()
     plt.show()
 
@@ -275,18 +189,18 @@ for t_check in t_check_list:
 # h_v_m(y) = (D1y^T @ diag(Clenshaw_Curtis_weights) @ D1y + (4pi^2/L_x^2) * diag(Clenshaw_Curtis_weights)) @ traj_v_breve_k_neg_1_m_0(t_m)
 # h_eta_m(y) = diag(Clenshaw_Curtis_weights) @ traj_eta_breve_k_neg_1_m_0(t_m)
 
-K = np.zeros((2 * ny, 2 * ny), dtype=complex)
-M = np.zeros((2 * ny, 2 * ny))
+K = np.zeros((2 * params.ny, 2 * params.ny), dtype=complex)
+M = np.zeros((2 * params.ny, 2 * params.ny))
 
-Kvv = ((fom.D1).T @ np.diag(fom.Clenshaw_Curtis_weights) @ fom.D1 + (4 * np.pi**2 / Lx**2) * np.diag(fom.Clenshaw_Curtis_weights))
+Kvv = ((fom.D1).T @ np.diag(fom.Clenshaw_Curtis_weights) @ fom.D1 + (4 * np.pi**2 / params.Lx**2) * np.diag(fom.Clenshaw_Curtis_weights))
 Ketaeta = np.diag(fom.Clenshaw_Curtis_weights)
 
-M[:ny, :ny]  = (Lx**2 / (16 * np.pi**2)) * Kvv
-M[ny:, ny:] = (Lx**2 / (16 * np.pi**2)) * Ketaeta
+M[:params.ny, :params.ny]  = (params.Lx**2 / (16 * np.pi**2)) * Kvv
+M[params.ny:, params.ny:] = (params.Lx**2 / (16 * np.pi**2)) * Ketaeta
 
-for idx_time in range (len(tsave)):
-    traj_v_breve_k_neg_1_m_0 = fom.FFT_2D(traj[0 : nx * ny * nz, idx_time].reshape((nx, ny, nz)))[int(nx/2) - 1, :, int(nz/2)]
-    traj_eta_breve_k_neg_1_m_0 = fom.FFT_2D(traj[nx * ny * nz : , idx_time].reshape((nx, ny, nz)))[int(nx/2) - 1, :, int(nz/2)]
+for idx_time in range (len(params.tsave)):
+    traj_v_breve_k_neg_1_m_0 = fom.FFT_2D(traj[0 : params.nx * params.ny * params.nz, idx_time].reshape((params.nx, params.ny, params.nz)))[int(params.nx/2) - 1, :, int(params.nz/2)]
+    traj_eta_breve_k_neg_1_m_0 = fom.FFT_2D(traj[params.nx * params.ny * params.nz : , idx_time].reshape((params.nx, params.ny, params.nz)))[int(params.nx/2) - 1, :, int(params.nz/2)]
     h_v = Kvv @ traj_v_breve_k_neg_1_m_0
     h_eta = Ketaeta @ traj_eta_breve_k_neg_1_m_0
     h_m = np.concatenate((h_v, h_eta))
@@ -294,12 +208,12 @@ for idx_time in range (len(tsave)):
     
 K = np.real(K) # K is a Hermitian matrix, and we want to optimize f^T @ K @ f, where f is a real-valued vector, so we can just take the real part of K.
 
-evals, evecs = scipy.linalg.eigh(K, M, subset_by_index = [2 * ny - 1, 2 * ny - 1])
+evals, evecs = scipy.linalg.eigh(K, M, subset_by_index = [2 * params.ny - 1, 2 * params.ny - 1])
 f_opt = evecs[:, -1] # the optimal f = [f_v; f_eta], notice that since we are doing linearized 3D NS, and that initially the z-mean (i.e., the zeroth Fourier mode in z direction) of v is 0, so f_v (which comes from v_breve_k_neg_1_m_0 = 0) is also 0
 
 plt.figure()
-plt.plot(y, f_opt[:ny], label="f_v(y)")
-plt.plot(y, f_opt[ny:], label="f_eta(y)")
+plt.plot(params.y, f_opt[:params.ny], label="f_v(y)")
+plt.plot(params.y, f_opt[params.ny:], label="f_eta(y)")
 plt.title("Optimal template profile - wall-normal velocity component")
 plt.xlabel("y")
 plt.ylabel("f")
@@ -307,14 +221,14 @@ plt.legend()
 plt.tight_layout()
 plt.show()
 
-traj_template = np.cos(2 * np.pi * x[:, np.newaxis, np.newaxis] / Lx) * f_opt[np.newaxis, :, np.newaxis] * np.ones((1, 1, nz))
+traj_template = np.cos(2 * np.pi * params.x[:, np.newaxis, np.newaxis] / params.Lx) * f_opt[np.newaxis, :, np.newaxis] * np.ones((1, 1, params.nz))
 traj_template_dx = fom.diff_x(traj_template, order = 1)
 traj_template_dxx = fom.diff_x(traj_template, order = 2)
 traj_template = traj_template.ravel()
 traj_template_dx = traj_template_dx.ravel()
 traj_template_dxx = traj_template_dxx.ravel()
-np.save(fname_traj_template, traj_template)
-np.save(fname_traj_template_dx, traj_template_dx)
-np.save(fname_traj_template_dxx, traj_template_dxx)
+np.save(params.fname_traj_template, traj_template)
+np.save(params.fname_traj_template_dx, traj_template_dx)
+np.save(params.fname_traj_template_dxx, traj_template_dxx)
 
 # endregion

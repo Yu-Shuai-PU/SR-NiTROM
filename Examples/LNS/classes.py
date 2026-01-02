@@ -380,7 +380,7 @@ class optimization_objects:
                 'forcing_interp':   a scipy interpolator f that gives us a forcing f(t)
         """
         z = zc[:-1]
-
+        # print(f"evaluate_rom_rhs called at time t = {t}, z_magnitude = {np.linalg.norm(z)}")
         if np.linalg.norm(z) >= self.state_mag_threshold:
             dzdt = 0.0*z
             dcdt = 0.0

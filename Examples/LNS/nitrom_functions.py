@@ -133,9 +133,6 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
         # Gauss-Legendre quadrature points and weights
         tlg, wlg = np.polynomial.legendre.leggauss(opt_obj.leggauss_deg)
         wlg = np.asarray(wlg)
-
-        # Define operators derived from bases
-        Proj_perp = np.eye(Phi.shape[0]) - Psi@(PhiF.T)
         
         cdot_denom_linear = np.zeros(r)
         udx_linear = Psi.T @ PhiF_dx
@@ -197,7 +194,7 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
                 grad_Phi -= 2 * weight_X_j * np.einsum('i,j', e_X_fitted_weighted_j, z_j)
                 grad_Phi -= 2 * weight_cdot_j * e_cdot_j * cdot_j * u0dxx_zj_outer_product / cdot_denom_j
                 grad_Psi += 2 * weight_X_j * np.einsum('i,j',PhiF@z_j, PhiF.T@e_X_fitted_weighted_j)
-                grad_Psi += 2 * weight_cdot_j * e_cdot_j * cdot_j * (PhiF @ u0dxx_zj_outer_product.T @ PhiF) / cdot_denom_j
+                grad_Psi += 2 * weight_cdot_j * e_cdot_j * cdot_j * PhiF @ (u0dxx_zj_outer_product.T @ PhiF) / cdot_denom_j ### Warning: check this term carefully!!! Heavy memory usage!!!
                 
                 for (count,p) in enumerate(opt_obj.poly_comp):
                     equation = ','.join(ascii[:p])
@@ -271,8 +268,8 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
                     grad_Phi += Psi_dx @ Int_cdot_xi_z_j - Int_eta_cdot_u0dxx_outer_z_j_cdot_denom
 
                     grad_Psi -= PhiF_dx @ Int_cdot_xi_z_j.T
-                    grad_Psi += PhiF @ (Int_cdot_xi_z_j.T @ Psi.T) @ PhiF_dx
-                    grad_Psi += PhiF @ Int_eta_cdot_u0dxx_outer_z_j_cdot_denom.T @ PhiF
+                    grad_Psi += PhiF @ Int_cdot_xi_z_j.T @ (Psi.T @ PhiF_dx)
+                    grad_Psi += PhiF @ (Int_eta_cdot_u0dxx_outer_z_j_cdot_denom.T @ PhiF)
 
                     for (count,p) in enumerate(opt_obj.poly_comp):
                         equation = ','.join(ascii[:p+1])
@@ -302,10 +299,11 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
             grad_Phi -= 2 * weight_X_0 * np.einsum('i,j', e_X_fitted_weighted_0, z_0)
             grad_Phi -= 2 * weight_cdot_0 * e_cdot_0 * cdot_0 * u0dxx_z_0_outer_0 / cdot_denom_0
             grad_Psi += 2 * weight_X_0 * np.einsum('i,j',PhiF@z_0, PhiF.T@e_X_fitted_weighted_0)
-            grad_Psi += 2 * weight_cdot_0 * e_cdot_0 * cdot_0 * (PhiF @ u0dxx_z_0_outer_0.T @ PhiF) / cdot_denom_0
+            grad_Psi += 2 * weight_cdot_0 * e_cdot_0 * cdot_0 * PhiF @ (u0dxx_z_0_outer_0.T @ PhiF) / cdot_denom_0
             grad_Psi -= np.einsum('i,j', opt_obj.X_fitted_weighted[k,:,0], xi0_j)
             
-            grad_Phi = (Proj_perp @ grad_Phi) @ F.T
+            # Project gradients onto the tangent space            
+            grad_Phi = (grad_Phi - Psi @ (PhiF.T @ grad_Phi)) @ F.T
         
         # Compute the gradient of the stability-promoting term
         if opt_obj.l2_pen != None and mpi_pool.rank == 0:

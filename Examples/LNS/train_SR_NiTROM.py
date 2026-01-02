@@ -90,13 +90,13 @@ fname_time = traj_path + "time.npy"
 #%% # Generate and save trajectory
 n_traj = 1
 
-Lx = 48
+Lx = 32
 Ly = 2 # from -1 to 1
-Lz = 24
+Lz = 16
 
-nx = 96
-ny = 65 # ny includes the boundary points when using Chebyshev grid
-nz = 96
+nx = 32
+ny = 33 # ny includes the boundary points when using Chebyshev grid
+nz = 32
 
 x = np.linspace(0, Lx, num=nx, endpoint=False)
 y = np.cos(np.pi * np.linspace(0, ny - 1, num=ny) / (ny - 1))  # Chebyshev grid in y direction, location from 1 to -1
@@ -144,15 +144,15 @@ pool.load_data()
 
 T_final = pool.time[-1]
 
-r = 40 # ROM dimension, should account for 99.5% energy
+r = 40 # ROM dimension, should account for 99.5% energy, according to our test, 40 is fine for a single benchmark trajectory.
 
 initialization = "POD-Galerkin" # "POD-Galerkin" or "Previous NiTROM"
 # initialization = "Previous NiTROM"
 NiTROM_coeff_version = "new" # "old" or "new" for loading the NiTROM coefficients before or after the latest training
 # NiTROM_coeff_version = "old"
-# training_objects = "tensors_and_bases"
+training_objects = "tensors_and_bases"
 # training_objects = "tensors" 
-training_objects = "no_alternating"
+# training_objects = "no_alternating"
 manifold = "Grassmann" # "Grassmann" or "Stiefel" for Psi manifold
 # manifold = "Stiefel"
 weight_decay_rate = 1 # if weight_decay_rate is not 1, then the snapshots at larger times will be given less weights in the cost function
@@ -163,7 +163,7 @@ initial_relative_weight_cdot = 0.05
 final_relative_weight_cdot = 0.05
 sigmoid_steepness_cdot_weight = 2.0
 k0 = 0
-kouter = 1
+kouter = 5
 kinner_basis = 3
 kinner_tensor = 3
 initial_step_size_basis = 1e-1
@@ -467,6 +467,7 @@ opt_obj_kwargs = {
 'weight_decay_rate': weight_decay_rate
 }
 opt_obj = classes.optimization_objects(*opt_obj_inputs,**opt_obj_kwargs)
+opt_obj.recalibrate_weights(weight_traj, weight_shifting_amount, weight_shifting_speed)
 cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
 problem = pymanopt.Problem(M,cost,euclidean_gradient=grad)
 check_gradient(problem,x=point)

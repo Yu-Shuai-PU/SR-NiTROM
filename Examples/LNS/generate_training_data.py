@@ -76,13 +76,13 @@ fname_time = traj_path + "time.npy"
 
 ### First, we try to set up the initial localized disturbance
 
-Lx = 32
+Lx = 48
 Ly = 2 # from -1 to 1
-Lz = 16
+Lz = 24
 
-nx = 32
-ny = 33 # ny includes the boundary points when using Chebyshev grid
-nz = 32
+nx = 64
+ny = 65 # ny includes the boundary points when using Chebyshev grid
+nz = 64
 
 x = np.linspace(0, Lx, num=nx, endpoint=False)
 y = np.cos(np.pi * np.linspace(0, ny - 1, num=ny) / (ny - 1))  # Chebyshev grid in y direction, location from 1 to -1

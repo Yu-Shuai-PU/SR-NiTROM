@@ -65,6 +65,7 @@ def plot_ROM_vs_FOM(opt_obj, traj_idx, fig_path, relative_error, relative_error_
         plt.plot(opt_obj.time, sol_SRG[idx_mode,:], label=f"SRG Mode {idx_mode} amplitude over time")
         plt.plot(opt_obj.time, traj_fitted_proj[idx_mode,:], label=f"FOM Mode {idx_mode} amplitude over time")
         plt.xlabel("Time")
+        plt.ylim([-0.1, 0.1])
         plt.ylabel(f"Mode {idx_mode} amplitude")
         plt.title(f"Mode {idx_mode} amplitude over time along trajectory {traj_idx}")
         plt.legend()

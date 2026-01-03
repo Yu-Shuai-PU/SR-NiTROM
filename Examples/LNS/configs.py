@@ -1,6 +1,7 @@
 # params.py : store simulation parameters and constants
 import numpy as np
 from dataclasses import dataclass, field
+from typing import List
 import fom_class_LNS
 import os
 
@@ -9,14 +10,14 @@ class SimConfigs:
     
     # Simulation parameters
     
-    Lx: float = 32
+    Lx: float = 48
     Ly: float = 2
-    Lz: float = 16
-    nx: int = 32
-    ny: int = 33
-    nz: int = 32
+    Lz: float = 24
+    nx: int = 96
+    ny: int = 65
+    nz: int = 96
     Re: float = 3000
-    T: float = 100
+    T: float = 200
     dt: float = 0.5
     nsave: int = 2
     amp: float = 1.0
@@ -31,14 +32,15 @@ class SimConfigs:
     
     n_traj : int = 1 # number of trajectories used for training
     r : int = 40 # dimension of the ROM
-    poly_comp: list = [1]
+    poly_comp: List[int] = field(default_factory=lambda: [1])
     initialization: str = "POD-Galerkin" # "POD-Galerkin" or "Previous NiTROM"
     NiTROM_coeff_version: str = "new" # "old" or "new" for loading the NiTROM coefficients before or after the latest training
     training_objects: str = "tensors_and_bases" # "tensors_and_bases" or "tensors" or "no_alternating"
     manifold: str = "Grassmann" # "Grassmann" or "Stiefel" for Psi manifold choice
     timespan_percentage_POD: float = 1.00 # percentage of the entire timespan used for POD (always use all snapshots for POD)
-    timespan_percentage_NiTROM_training: float = 0.2 # percentage of the entire timespan used for NiTROM training
+    timespan_percentage_NiTROM_training: float = 0.02 # percentage of the entire timespan used for NiTROM training
     
+
     # Parameters for relative weights between different terms in the cost function
     
     weight_decay_rate: float = 1 # if weight_decay_rate is not 1, then the snapshots at larger times will be given less weights in the cost function
@@ -55,14 +57,19 @@ class SimConfigs:
     kouter: int = 5
     kinner_basis: int = 3
     kinner_tensor: int = 3
+    
     initial_step_size_basis: float = 1e-1
-    initial_step_size_tensor: float = 1e-3
+    initial_step_size_tensor: float = 1e-4
     initial_step_size: float = 1e-3
-    initial_step_size_decrease_rate: float = 0.9
-    sufficient_decrease_rate_basis: float = 1e-3
-    sufficient_decrease_rate_tensor: float = 1e-3
+    
+    step_size_decrease_rate: float = 0.9
+    
+    initial_sufficient_decrease_rate_basis: float = 1e-3
+    initial_sufficient_decrease_rate_tensor: float = 1e-3
     initial_sufficient_decrease_rate: float = 1e-3
+    
     sufficient_decrease_rate_decay: float = 0.99
+    
     contraction_factor_tensor: float = 0.6
     contraction_factor_basis: float = 0.6
     contraction_factor: float = 0.6
@@ -116,6 +123,7 @@ class SimConfigs:
         self.fname_shift_speed = self.traj_path + "shift_speed_%03d.npy" # for shifting speed
         self.fname_time = self.traj_path + "time.npy"
         
+        self.num_modes_to_plot = self.r
         self.snapshot_start_time_idx_POD = 0
         self.snapshot_end_time_idx_POD = 1 + int(self.timespan_percentage_POD * (len(self.tsave) - 1)) # 1001
         self.snapshot_start_time_idx_NiTROM_training = 0

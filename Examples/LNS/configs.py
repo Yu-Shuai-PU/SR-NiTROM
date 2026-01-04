@@ -10,13 +10,13 @@ class SimConfigs:
     
     # Simulation parameters
     
-    Lx: float = 48
+    Lx: float = 64
     Ly: float = 2
-    Lz: float = 24
-    nx: int = 96
-    ny: int = 65
-    nz: int = 96
-    Re: float = 3000
+    Lz: float = 16
+    nx: int = 64
+    ny: int = 33
+    nz: int = 16
+    Re: float = 1200
     T: float = 200
     dt: float = 0.5
     nsave: int = 2
@@ -31,7 +31,7 @@ class SimConfigs:
     # Training methods
     
     n_traj : int = 1 # number of trajectories used for training
-    r : int = 40 # dimension of the ROM
+    r : int = 20 # dimension of the ROM
     poly_comp: List[int] = field(default_factory=lambda: [1])
     initialization: str = "POD-Galerkin" # "POD-Galerkin" or "Previous NiTROM"
     NiTROM_coeff_version: str = "new" # "old" or "new" for loading the NiTROM coefficients before or after the latest training
@@ -44,11 +44,15 @@ class SimConfigs:
     # Parameters for relative weights between different terms in the cost function
     
     weight_decay_rate: float = 1 # if weight_decay_rate is not 1, then the snapshots at larger times will be given less weights in the cost function
-    initial_relative_weight_c: float = 0.5 # as the training iterations go on, we will gradually increase the weight of shift amount term in the cost function
-    final_relative_weight_c: float = 0.5  # the final relative weight
+    # initial_relative_weight_c: float = 0.5 # as the training iterations go on, we will gradually increase the weight of shift amount term in the cost function
+    # final_relative_weight_c: float = 0.5  # the final relative weight
+    initial_relative_weight_c: float = 0.0
+    final_relative_weight_c: float = 0.0
     sigmoid_steepness_c_weight: float = 2.0
-    initial_relative_weight_cdot: float = 0.05
-    final_relative_weight_cdot: float = 0.05
+    # initial_relative_weight_cdot: float = 0.05
+    # final_relative_weight_cdot: float = 0.05
+    initial_relative_weight_cdot: float = 0.0
+    final_relative_weight_cdot: float = 0.0
     sigmoid_steepness_cdot_weight: float = 2.0
     
     # Parameters for training

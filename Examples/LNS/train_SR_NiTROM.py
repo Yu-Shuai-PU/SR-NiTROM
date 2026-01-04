@@ -94,101 +94,101 @@ T_final = pool.time[-1]
 
 # region 1: SR-POD-Galerkin ROM
 
-# which_trajs = np.arange(0, pool.my_n_traj, 1)
-# which_times = np.arange(params.snapshot_start_time_idx_POD,params.snapshot_end_time_idx_POD,1)
+which_trajs = np.arange(0, pool.my_n_traj, 1)
+which_times = np.arange(params.snapshot_start_time_idx_POD,params.snapshot_end_time_idx_POD,1)
 
-# opt_obj_inputs = (pool,which_trajs,which_times,params.leggauss_deg,params.nsave_rom,params.poly_comp)
-# opt_obj = classes.optimization_objects(*opt_obj_inputs)
+opt_obj_inputs = (pool,which_trajs,which_times,params.leggauss_deg,params.nsave_rom,params.poly_comp)
+opt_obj = classes.optimization_objects(*opt_obj_inputs)
 
-# Phi_POD, cumulative_energy_proportion = opinf_fun.perform_POD(pool,opt_obj,params.r,fom)
-# Psi_POD = Phi_POD.copy() # Here, <Phi_POD, Phi_POD>_inner_product_3D = I, where inner_product_3D is the customized inner product defined in fom_class_LNS.py
+Phi_POD, cumulative_energy_proportion = opinf_fun.perform_POD(pool,opt_obj,params.r,fom)
+Psi_POD = Phi_POD.copy() # Here, <Phi_POD, Phi_POD>_inner_product_3D = I, where inner_product_3D is the customized inner product defined in fom_class_LNS.py
 
-# # To convert our customized inner product to standard L2 inner product, <q, q>_E = <Rq, Rq>_L2, we need to weight the projection bases:
+# To convert our customized inner product to standard L2 inner product, <q, q>_E = <Rq, Rq>_L2, we need to weight the projection bases:
 
-# Psi_POD_w  = fom.apply_sqrt_inner_product_weight(Psi_POD) # R * Psi_POD
-# Phi_POD_w  = Psi_POD_w.copy() # R * Phi_POD
-# PhiF_POD_w = Phi_POD_w @ scipy.linalg.inv(Psi_POD_w.T @ Phi_POD_w) # PhiF_POD = Phi_POD (Psi_POD.T * W * Phi_POD)^{-1}, W = R^T * R
+Psi_POD_w  = fom.apply_sqrt_inner_product_weight(Psi_POD) # R * Psi_POD
+Phi_POD_w  = Psi_POD_w.copy() # R * Phi_POD
+PhiF_POD_w = Phi_POD_w @ scipy.linalg.inv(Psi_POD_w.T @ Phi_POD_w) # PhiF_POD = Phi_POD (Psi_POD.T * W * Phi_POD)^{-1}, W = R^T * R
 
-# print(f"relative difference between PhiF_POD and Phi_POD: {np.linalg.norm(PhiF_POD_w - Phi_POD_w) / np.linalg.norm(Phi_POD_w):.4e}") # should be very small, yes!
-# ### Test the SR-Galerkin ROM simulation accuracy
+print(f"relative difference between PhiF_POD and Phi_POD: {np.linalg.norm(PhiF_POD_w - Phi_POD_w) / np.linalg.norm(Phi_POD_w):.4e}") # should be very small, yes!
+### Test the SR-Galerkin ROM simulation accuracy
 
-# Tensors_POD_w = fom.assemble_weighted_petrov_galerkin_tensors(Psi_POD_w, PhiF_POD_w) # A, p, s, M
+Tensors_POD_w = fom.assemble_weighted_petrov_galerkin_tensors(Psi_POD_w, PhiF_POD_w) # A, p, s, M
 
-# fname_Phi_POD = params.data_path + "Phi_POD.npy"
-# np.save(fname_Phi_POD,Phi_POD)
-# fname_Psi_POD = params.data_path + "Psi_POD.npy"
-# np.save(fname_Psi_POD,Psi_POD)
-# fname_Psi_POD_weighted = params.data_path + "Psi_POD_weighted.npy"
-# np.save(fname_Psi_POD_weighted,Psi_POD_w)
-# fname_PhiF_POD_weighted = params.data_path + "Phi_POD_weighted.npy"
-# np.save(fname_PhiF_POD_weighted,PhiF_POD_w)
-# fname_Tensors_POD = params.data_path + "Tensors_POD_Galerkin_weighted.npz"
-# np.savez(fname_Tensors_POD, *Tensors_POD_w)
-# disturbance_kinetic_energy_FOM = np.zeros(opt_obj.n_snapshots)
-# disturbance_kinetic_energy_SRG = np.zeros(opt_obj.n_snapshots)
-# relative_error = np.zeros(opt_obj.n_snapshots)                                             
-# relative_error_fitted = np.zeros(opt_obj.n_snapshots)
-# relative_error_space_time_SRG = np.zeros(params.n_traj)
+fname_Phi_POD = params.data_path + "Phi_POD.npy"
+np.save(fname_Phi_POD,Phi_POD)
+fname_Psi_POD = params.data_path + "Psi_POD.npy"
+np.save(fname_Psi_POD,Psi_POD)
+fname_Psi_POD_weighted = params.data_path + "Psi_POD_weighted.npy"
+np.save(fname_Psi_POD_weighted,Psi_POD_w)
+fname_PhiF_POD_weighted = params.data_path + "Phi_POD_weighted.npy"
+np.save(fname_PhiF_POD_weighted,PhiF_POD_w)
+fname_Tensors_POD = params.data_path + "Tensors_POD_Galerkin_weighted.npz"
+np.savez(fname_Tensors_POD, *Tensors_POD_w)
+disturbance_kinetic_energy_FOM = np.zeros(opt_obj.n_snapshots)
+disturbance_kinetic_energy_SRG = np.zeros(opt_obj.n_snapshots)
+relative_error = np.zeros(opt_obj.n_snapshots)                                             
+relative_error_fitted = np.zeros(opt_obj.n_snapshots)
+relative_error_space_time_SRG = np.zeros(params.n_traj)
 
 
-# for k in range(pool.my_n_traj):
-#     traj_idx = k + pool.disps[pool.rank]
-#     print("Preparing SR-Galerkin simulation %d/%d"%(traj_idx,pool.n_traj))
-#     traj_SRG_init = Psi_POD_w.T@fom.apply_sqrt_inner_product_weight(opt_obj.X_fitted[k,:,0].reshape(-1))
-#     shifting_amount_SRG_init = opt_obj.c[k,0]
+for k in range(pool.my_n_traj):
+    traj_idx = k + pool.disps[pool.rank]
+    print("Preparing SR-Galerkin simulation %d/%d"%(traj_idx,pool.n_traj))
+    traj_SRG_init = Psi_POD_w.T@fom.apply_sqrt_inner_product_weight(opt_obj.X_fitted[k,:,0].reshape(-1))
+    shifting_amount_SRG_init = opt_obj.c[k,0]
 
-#     sol_SRG = solve_ivp(opt_obj.evaluate_rom_rhs,
-#                     [opt_obj.time[0],opt_obj.time[-1]],
-#                     np.hstack((traj_SRG_init, shifting_amount_SRG_init)),
-#                     'RK45',
-#                     t_eval=opt_obj.time,
-#                     args=(np.zeros(params.r),) + Tensors_POD_w).y
+    sol_SRG = solve_ivp(opt_obj.evaluate_rom_rhs,
+                    [opt_obj.time[0],opt_obj.time[-1]],
+                    np.hstack((traj_SRG_init, shifting_amount_SRG_init)),
+                    'RK45',
+                    t_eval=opt_obj.time,
+                    args=(np.zeros(params.r),) + Tensors_POD_w).y
     
-#     traj_fitted_SRG = fom.apply_inv_sqrt_inner_product_weight(PhiF_POD_w@sol_SRG[:-1,:])
-#     traj_fitted_SRG_v = traj_fitted_SRG[0 : params.nx * params.ny * params.nz, :].reshape((params.nx, params.ny, params.nz, -1))
-#     traj_fitted_SRG_eta = traj_fitted_SRG[params.nx * params.ny * params.nz : , :].reshape((params.nx, params.ny, params.nz, -1))
-#     shifting_amount_SRG = sol_SRG[-1,:]
-#     traj_SRG = np.zeros_like(traj_fitted_SRG)
-#     shifting_speed_SRG = np.zeros_like(shifting_amount_SRG)
+    traj_fitted_SRG = fom.apply_inv_sqrt_inner_product_weight(PhiF_POD_w@sol_SRG[:-1,:])
+    traj_fitted_SRG_v = traj_fitted_SRG[0 : params.nx * params.ny * params.nz, :].reshape((params.nx, params.ny, params.nz, -1))
+    traj_fitted_SRG_eta = traj_fitted_SRG[params.nx * params.ny * params.nz : , :].reshape((params.nx, params.ny, params.nz, -1))
+    shifting_amount_SRG = sol_SRG[-1,:]
+    traj_SRG = np.zeros_like(traj_fitted_SRG)
+    shifting_speed_SRG = np.zeros_like(shifting_amount_SRG)
 
-#     for j in range (len(opt_obj.time)):
-#         traj_SRG_v_vec = fom.shift_x_input_3D(traj_fitted_SRG_v[:, :, :, j], shifting_amount_SRG[j])
-#         traj_SRG_eta_vec = fom.shift_x_input_3D(traj_fitted_SRG_eta[:, :, :, j], shifting_amount_SRG[j])
-#         traj_SRG[:,j] = np.concatenate((traj_SRG_v_vec.ravel(), traj_SRG_eta_vec.ravel()))
-#         shifting_speed_SRG[j] = opt_obj.compute_shift_speed(sol_SRG[:-1,j], Tensors_POD_w)
-#         diff_SRG_FOM_fitted = traj_fitted_SRG[:,j] - opt_obj.X_fitted[k,:,j]
-#         diff_SRG_FOM        = traj_SRG[:,j] - opt_obj.X[k,:,j]
-#         disturbance_kinetic_energy_FOM[j] = fom.inner_product_3D(opt_obj.X_fitted[k,0 : params.nx * params.ny * params.nz,j].reshape((params.nx, params.ny, params.nz)),
-#                                                                opt_obj.X_fitted[k,params.nx * params.ny * params.nz : ,j].reshape((params.nx, params.ny, params.nz)),
-#                                                                opt_obj.X_fitted[k,0 : params.nx * params.ny * params.nz,j].reshape((params.nx, params.ny, params.nz)),
-#                                                                opt_obj.X_fitted[k,params.nx * params.ny * params.nz : ,j].reshape((params.nx, params.ny, params.nz)))
-#         disturbance_kinetic_energy_SRG[j] = fom.inner_product_3D(traj_fitted_SRG[0 : params.nx * params.ny * params.nz,j].reshape((params.nx, params.ny, params.nz)),
-#                                                                traj_fitted_SRG[params.nx * params.ny * params.nz : ,j].reshape((params.nx, params.ny, params.nz)),
-#                                                                traj_fitted_SRG[0 : params.nx * params.ny * params.nz,j].reshape((params.nx, params.ny, params.nz)),
-#                                                                traj_fitted_SRG[params.nx * params.ny * params.nz : ,j].reshape((params.nx, params.ny, params.nz)))
-#         relative_error_fitted[j] = fom.inner_product_3D(diff_SRG_FOM_fitted[0 : params.nx * params.ny * params.nz].reshape((params.nx, params.ny, params.nz)),
-#                                                  diff_SRG_FOM_fitted[params.nx * params.ny * params.nz : ].reshape((params.nx, params.ny, params.nz)),
-#                                                  diff_SRG_FOM_fitted[0 : params.nx * params.ny * params.nz].reshape((params.nx, params.ny, params.nz)),
-#                                                  diff_SRG_FOM_fitted[params.nx * params.ny * params.nz : ].reshape((params.nx, params.ny, params.nz))) / disturbance_kinetic_energy_FOM[j]
-#         relative_error[j] = fom.inner_product_3D(diff_SRG_FOM[0 : params.nx * params.ny * params.nz].reshape((params.nx, params.ny, params.nz)),
-#                                                  diff_SRG_FOM[params.nx * params.ny * params.nz : ].reshape((params.nx, params.ny, params.nz)),
-#                                                  diff_SRG_FOM[0 : params.nx * params.ny * params.nz].reshape((params.nx, params.ny, params.nz)),
-#                                                  diff_SRG_FOM[params.nx * params.ny * params.nz : ].reshape((params.nx, params.ny, params.nz))) / disturbance_kinetic_energy_FOM[j]
+    for j in range (len(opt_obj.time)):
+        traj_SRG_v_vec = fom.shift_x_input_3D(traj_fitted_SRG_v[:, :, :, j], shifting_amount_SRG[j])
+        traj_SRG_eta_vec = fom.shift_x_input_3D(traj_fitted_SRG_eta[:, :, :, j], shifting_amount_SRG[j])
+        traj_SRG[:,j] = np.concatenate((traj_SRG_v_vec.ravel(), traj_SRG_eta_vec.ravel()))
+        shifting_speed_SRG[j] = opt_obj.compute_shift_speed(sol_SRG[:-1,j], Tensors_POD_w)
+        diff_SRG_FOM_fitted = traj_fitted_SRG[:,j] - opt_obj.X_fitted[k,:,j]
+        diff_SRG_FOM        = traj_SRG[:,j] - opt_obj.X[k,:,j]
+        disturbance_kinetic_energy_FOM[j] = fom.inner_product_3D(opt_obj.X_fitted[k,0 : params.nx * params.ny * params.nz,j].reshape((params.nx, params.ny, params.nz)),
+                                                               opt_obj.X_fitted[k,params.nx * params.ny * params.nz : ,j].reshape((params.nx, params.ny, params.nz)),
+                                                               opt_obj.X_fitted[k,0 : params.nx * params.ny * params.nz,j].reshape((params.nx, params.ny, params.nz)),
+                                                               opt_obj.X_fitted[k,params.nx * params.ny * params.nz : ,j].reshape((params.nx, params.ny, params.nz)))
+        disturbance_kinetic_energy_SRG[j] = fom.inner_product_3D(traj_fitted_SRG[0 : params.nx * params.ny * params.nz,j].reshape((params.nx, params.ny, params.nz)),
+                                                               traj_fitted_SRG[params.nx * params.ny * params.nz : ,j].reshape((params.nx, params.ny, params.nz)),
+                                                               traj_fitted_SRG[0 : params.nx * params.ny * params.nz,j].reshape((params.nx, params.ny, params.nz)),
+                                                               traj_fitted_SRG[params.nx * params.ny * params.nz : ,j].reshape((params.nx, params.ny, params.nz)))
+        relative_error_fitted[j] = fom.inner_product_3D(diff_SRG_FOM_fitted[0 : params.nx * params.ny * params.nz].reshape((params.nx, params.ny, params.nz)),
+                                                 diff_SRG_FOM_fitted[params.nx * params.ny * params.nz : ].reshape((params.nx, params.ny, params.nz)),
+                                                 diff_SRG_FOM_fitted[0 : params.nx * params.ny * params.nz].reshape((params.nx, params.ny, params.nz)),
+                                                 diff_SRG_FOM_fitted[params.nx * params.ny * params.nz : ].reshape((params.nx, params.ny, params.nz))) / disturbance_kinetic_energy_FOM[j]
+        relative_error[j] = fom.inner_product_3D(diff_SRG_FOM[0 : params.nx * params.ny * params.nz].reshape((params.nx, params.ny, params.nz)),
+                                                 diff_SRG_FOM[params.nx * params.ny * params.nz : ].reshape((params.nx, params.ny, params.nz)),
+                                                 diff_SRG_FOM[0 : params.nx * params.ny * params.nz].reshape((params.nx, params.ny, params.nz)),
+                                                 diff_SRG_FOM[params.nx * params.ny * params.nz : ].reshape((params.nx, params.ny, params.nz))) / disturbance_kinetic_energy_FOM[j]
         
-#     traj_FOM = opt_obj.X[k,:,:]
-#     shifting_amount_FOM = opt_obj.c[k,:]
-#     shifting_speed_FOM = opt_obj.cdot[k,:]
-#     traj_fitted_FOM = opt_obj.X_fitted[k,:,:]
-#     traj_fitted_proj = Psi_POD_w.T @ fom.apply_sqrt_inner_product_weight(traj_fitted_FOM)
+    traj_FOM = opt_obj.X[k,:,:]
+    shifting_amount_FOM = opt_obj.c[k,:]
+    shifting_speed_FOM = opt_obj.cdot[k,:]
+    traj_fitted_FOM = opt_obj.X_fitted[k,:,:]
+    traj_fitted_proj = Psi_POD_w.T @ fom.apply_sqrt_inner_product_weight(traj_fitted_FOM)
     
-#     ### plotting
-#     plot_ROM_vs_FOM(opt_obj, traj_idx, params.fig_path, relative_error, relative_error_fitted,
-#                     disturbance_kinetic_energy_FOM, disturbance_kinetic_energy_SRG,
-#                     shifting_amount_SRG, shifting_amount_FOM,
-#                     shifting_speed_SRG, shifting_speed_FOM,
-#                     traj_fitted_proj, sol_SRG,
-#                     traj_FOM, traj_fitted_FOM, traj_SRG, traj_fitted_SRG, params.num_modes_to_plot,
-#                     params.nx, params.ny, params.nz, params.dt, params.nsave, params.x, params.y, params.z, params.t_check_list, params.y_check)
+    ### plotting
+    plot_ROM_vs_FOM(opt_obj, traj_idx, params.fig_path, relative_error, relative_error_fitted,
+                    disturbance_kinetic_energy_FOM, disturbance_kinetic_energy_SRG,
+                    shifting_amount_SRG, shifting_amount_FOM,
+                    shifting_speed_SRG, shifting_speed_FOM,
+                    traj_fitted_proj, sol_SRG,
+                    traj_FOM, traj_fitted_FOM, traj_SRG, traj_fitted_SRG, params.num_modes_to_plot,
+                    params.nx, params.ny, params.nz, params.dt, params.nsave, params.x, params.y, params.z, params.t_check_list, params.y_check)
     
 # endregion
 

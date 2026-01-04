@@ -1,6 +1,60 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+def spectral_resample(data, x_old, z_old, fom, zoom_factor=4):
+    """
+    适配你自带 shift 和归一化功能的 fom.FFT_2D/IFFT_2D。
+    
+    参数:
+        data: (Nx, Nz) 原始数据
+        x_old, z_old: 原始坐标
+        fom: 求解器对象 (自动处理 shift 和 norm)
+        zoom_factor: 加密倍数
+    """
+    Nx, Nz = data.shape
+    Nx_new, Nz_new = int(Nx * zoom_factor), int(Nz * zoom_factor)
+    
+    # 1. 升维: (Nx, Nz) -> (Nx, 1, Nz)
+    # 因为你的 fom.FFT_2D 强制要求 3D 输入且对 axis=(0, 2) 操作
+    data_3d = data[:, np.newaxis, :]
+    
+    # 2. FFT
+    # 你的函数已经做好了 fftshift，所以出来的数据，零频已经在中心了
+    # 形状: (Nx, 1, Nz)
+    f_hat_3d = fom.FFT_2D(data_3d)
+    
+    # 3. 补零 (Padding)
+    # 创建全 0 的新谱空间 (Nx_new, 1, Nz_new)
+    f_hat_padded = np.zeros((Nx_new, 1, Nz_new), dtype=complex)
+    
+    # 计算新旧网格的中心位置
+    cx, cz = Nx // 2, Nz // 2
+    cx_new, cz_new = Nx_new // 2, Nz_new // 2
+    
+    # 计算切片位置，把旧的谱直接贴到新谱的中心
+    # 注意：这里不需要再做 fftshift，因为 f_hat_3d 已经是中心化的
+    start_x = cx_new - cx
+    end_x = start_x + Nx
+    start_z = cz_new - cz
+    end_z = start_z + Nz
+    
+    # 核心操作：中间嵌入
+    f_hat_padded[start_x:end_x, 0, start_z:end_z] = f_hat_3d[:, 0, :]
+    
+    # 4. IFFT
+    # 你的 fom.IFFT_2D 内部自带 ifftshift 和 * (Nx*Nz) 的操作
+    # 所以直接传进去即可，幅度会自动修正，不需要额外乘 zoom_factor
+    data_new_3d = fom.IFFT_2D(f_hat_padded)
+    
+    # 5. 降维并取实部
+    data_new = data_new_3d[:, 0, :].real
+    
+    # 6. 生成新坐标
+    x_new = np.linspace(x_old.min(), x_old.max(), Nx_new)
+    z_new = np.linspace(z_old.min(), z_old.max(), Nz_new)
+    
+    return data_new, x_new, z_new
+
 def plot_ROM_vs_FOM(opt_obj, traj_idx, fig_path, relative_error, relative_error_fitted,
                     disturbance_kinetic_energy_FOM, disturbance_kinetic_energy_SRG,
                     shifting_amount_SRG, shifting_amount_FOM,

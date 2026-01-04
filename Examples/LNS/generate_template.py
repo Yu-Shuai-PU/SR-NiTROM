@@ -16,6 +16,7 @@ sys.path.append("../../Optimization_Functions/")
 
 import configs
 import fom_class_LNS
+import func_plot
 
 """
 Generate the snapshots of 3D linearized NS equations for channel flow
@@ -45,7 +46,10 @@ fom = fom_class_LNS.LNS(params.Lx, params.Ly, params.Lz,
                         params.y, params.Re,
                         params.U_base, params.U_base_dy, params.U_base_dyy)
 tstep_kse_fom = fom_class_LNS.time_step_LNS(fom, params.time)
-psi0 = params.amp * (1 - params.Y**2)**2 * ((params.X - params.Lx/2)/2) * (params.Z - params.Lz/2)**2 * np.exp(-((params.X - params.Lx/2)/2)**2 - ((params.Z - params.Lz/2)/2)**2)
+
+psi0 = params.amp * (1 - params.Y**2)**2 * (params.X - params.Lx/2)**2 * ((params.Z - params.Lz/2)/2)**2 * np.exp(-((params.X - params.Lx/2)/2)**2 - ((params.Z - params.Lz/2)/2)**2) 
+
+# psi0 = params.amp * (1 - params.Y**2)**2 * ((params.X - params.Lx/2)/2) * (params.Z - params.Lz/2)**2 * np.exp(-((params.X - params.Lx/2)/2)**2 - ((params.Z - params.Lz/2)/2)**2)
 v0 = fom.diff_z(psi0, order = 1)
 eta0 = fom.diff_x(fom.diff_1_y(psi0), order = 1)
 
@@ -116,50 +120,68 @@ plt.show()
 traj_v = traj[0 : params.nx * params.ny * params.nz, :].reshape((params.nx, params.ny, params.nz, -1))
 traj_eta = traj[params.nx * params.ny * params.nz : , :].reshape((params.nx, params.ny, params.nz, -1))
 
-for t_check in params.t_check_list:
+# for t_check in params.t_check_list:
 
-    idx_sample = int(t_check / (params.dt * params.nsave))
-    v_slice = traj_v[:, :, :, idx_sample]
-    eta_slice = traj_eta[:, :, :, idx_sample]
-    idx_y_check = np.argmin(np.abs(params.y - params.y_check))
-    v_slice_ycheck = v_slice[:, idx_y_check, :]
-    eta_slice_ycheck = eta_slice[:, idx_y_check, :]
+#     idx_sample = int(t_check / (params.dt * params.nsave))
+#     v_slice = traj_v[:, :, :, idx_sample]
+#     eta_slice = traj_eta[:, :, :, idx_sample]
+#     idx_y_check = np.argmin(np.abs(params.y - params.y_check))
+#     v_slice_ycheck = v_slice[:, idx_y_check, :]
+#     eta_slice_ycheck = eta_slice[:, idx_y_check, :]
 
-    v_min = np.min(v_slice_ycheck)
-    v_max = np.max(v_slice_ycheck)
-    # v_spacing = 1e-6  # 等高线间距
+#     v_min = np.min(v_slice_ycheck)
+#     v_max = np.max(v_slice_ycheck)
+#     # v_spacing = 1e-6  # 等高线间距
     
-    eta_min = np.min(eta_slice_ycheck)
-    eta_max = np.max(eta_slice_ycheck)
-    # eta_spacing = 1e-6  # 等高线间距
-
-    # 构造等高线 levels
-    # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
-    plt.figure(figsize=(10,6))
-    # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
-    plt.pcolormesh(params.x, params.z, v_slice_ycheck.T, cmap='bwr')
-    plt.colorbar()
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"$z$")
-    plt.xlim(np.min(params.x), np.max(params.x))
-    plt.ylim(np.min(params.z), np.max(params.z))
-    plt.title(f"Normal velocity v at t={t_check}, y={params.y_check}")
-    plt.tight_layout()
-    plt.show()
+#     eta_min = np.min(eta_slice_ycheck)
+#     eta_max = np.max(eta_slice_ycheck)
+#     # eta_spacing = 1e-6  # 等高线间距
     
-    plt.figure(figsize=(10, 6))
-    # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
-    cs = plt.contour(params.x, params.z, v_slice_ycheck.T, colors='black', linewidths=0.6)
-    # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
-    # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
-    # plt.colorbar()
-    plt.xlabel(r"$x$")
-    plt.ylabel(r"$z$")
-    plt.xlim(np.min(params.x), np.max(params.x))
-    plt.ylim(np.min(params.z), np.max(params.z))
-    plt.title(f"Contours of normal velocity v at t={t_check}, y={params.y_check}")
-    plt.tight_layout()
-    plt.show()
+#     v_dense, x_dense, z_dense = func_plot.spectral_resample(v_slice_ycheck, params.x, params.z, fom, zoom_factor=4)
+
+#     # 构造等高线 levels
+#     # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
+#     plt.figure(figsize=(10,6))
+#     # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
+#     plt.pcolormesh(x_dense, z_dense, v_dense.T, cmap='bwr')
+#     plt.colorbar()
+#     plt.xlabel(r"$x$")
+#     plt.ylabel(r"$z$")
+#     plt.xlim(np.min(x_dense), np.max(x_dense))
+#     plt.ylim(np.min(z_dense), np.max(z_dense))
+#     plt.title(f"Normal velocity v at t={t_check}, y={params.y_check}")
+#     plt.tight_layout()
+#     plt.show()
+    
+#         # 1. 计算最大绝对值，确定画图范围
+#     v_max = np.max(np.abs(v_dense))
+
+#     # 2. 设置阈值 (threshold)
+#     # 只有超过这个值的波动才会被画出来
+#     # 比如忽略掉最大值的 5% 以下的波动（根据你的数据噪声大小调整这个 0.05）
+#     threshold = 0.05 * v_max 
+
+#     # 3. 生成两段 Levels：负数段 和 正数段，中间空开
+#     # 负数段：从 -v_max 到 -threshold
+#     levels_neg = np.linspace(-v_max, -threshold, 10) 
+#     # 正数段：从 threshold 到 v_max
+#     levels_pos = np.linspace(threshold, v_max, 10)
+#     # 合并
+#     custom_levels = np.concatenate([levels_neg, levels_pos])
+    
+#     plt.figure(figsize=(10, 6))
+#     # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
+#     cs = plt.contour(x_dense, z_dense, v_dense.T, levels=custom_levels, colors='black', linewidths=0.6)
+#     # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
+#     # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
+#     # plt.colorbar()
+#     plt.xlabel(r"$x$")
+#     plt.ylabel(r"$z$")
+#     plt.xlim(np.min(params.x), np.max(params.x))
+#     plt.ylim(np.min(params.z), np.max(params.z))
+#     plt.title(f"Contours of normal velocity v at t={t_check}, y={params.y_check}")
+#     plt.tight_layout()
+#     plt.show()
 
 # endregion
 

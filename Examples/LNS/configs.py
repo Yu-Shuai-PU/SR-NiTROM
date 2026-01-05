@@ -39,7 +39,7 @@ class SimConfigs:
     # Training methods
     
     n_traj : int = 1 # number of trajectories used for training
-    r : int = 20 # dimension of the ROM
+    r : int = 12 # dimension of the ROM
     poly_comp: List[int] = field(default_factory=lambda: [1])
     initialization: str = "POD-Galerkin" # "POD-Galerkin" or "Previous NiTROM"
     # initialization: str = "Previous NiTROM" # "POD-Galerkin" or "Previous NiTROM"

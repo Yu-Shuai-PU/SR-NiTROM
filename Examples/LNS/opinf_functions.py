@@ -199,6 +199,24 @@ def perform_POD(pool, opt_obj, r, fom):
         lambdas_r = lambdas[:r]
         V_r = V[:, :r]
         
+        if np.any(lambdas_r <= 0):
+            print(f"Rank 0 Warning: Detected {np.sum(lambdas_r <= 0)} non-positive eigenvalues due to numerical noise.")
+            
+            # 方法 A：取绝对值 (推荐，简单粗暴处理 -1e-16 这种噪声)
+            lambdas_r = np.abs(lambdas_r)
+            
+            # 方法 B（更稳健）：防止除以极小值导致模态爆炸
+            # 如果特征值太小（接近机器精度），它的倒数会极大，放大噪声。
+            # 这里设置一个安全阈值 epsilon
+            epsilon = 1e-14
+            
+            # 如果特征值小于 epsilon，说明该阶模态不仅是噪声，而且计算其逆平方根会引入巨大误差
+            # 这种情况下，通常建议减小 r。但为了让程序不崩，我们可以将其“截断”在 epsilon
+            if np.any(lambdas_r < epsilon):
+                print(f"Rank 0 Warning: Some eigenvalues are smaller than {epsilon}. Clipping them to avoid division by zero.")
+                lambdas_r = np.maximum(lambdas_r, epsilon)
+        
+        
         # 计算能量占比 (基于特征值 lambda)
         # 在快照法中，lambda 本身就是能量 (Sigma^2)
         cumulative_energy_proportion = 100 * np.cumsum(lambdas[:r]) / np.sum(lambdas)

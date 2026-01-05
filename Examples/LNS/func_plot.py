@@ -110,21 +110,6 @@ def plot_SRG_vs_FOM(opt_obj, traj_idx, fig_path, relative_error_SRG_idx, relativ
     plt.savefig(fig_path + "shifting_speed_traj_%03d.png"%traj_idx)
     plt.close()
     
-    integrated_FOM = cumulative_trapezoid(shifting_speed_FOM_idx[:len(opt_obj.time)], 
-                                      opt_obj.time, 
-                                      initial=0)
-    
-    plt.figure(figsize=(10,6))
-    plt.plot(opt_obj.time, shifting_amount_FOM_idx[:len(opt_obj.time)], 'k-', label="FOM c(t)")
-    plt.plot(opt_obj.time, integrated_FOM + shifting_amount_FOM_idx[0], 'k--', label="Integrated FOM dc/dt")
-    plt.xlabel("Time t")
-    plt.ylabel("Shifting Amount c(t)")
-    plt.title(f"Verification of shifting amount via integrating shifting speed along trajectory {traj_idx}")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-    
-    
     ### Plot the leading POD modes amplitudes
     
     for idx_mode in range (num_modes_to_plot):

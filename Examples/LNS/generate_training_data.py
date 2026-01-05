@@ -85,6 +85,7 @@ for k in range (pool.my_n_traj):
     deriv = np.zeros_like(traj)
     deriv_fitted = np.zeros_like(traj_fitted)
     shifting_speed = np.zeros(len(tsave))
+    disturbance_energy = np.zeros(len(tsave))
     for i in range (traj.shape[1]):
         deriv[:, i] = fom.evaluate_fom_rhs_unreduced(traj[:, i])
         deriv_v_3D = deriv[:params.nx * params.ny * params.nz, i].reshape((params.nx, params.ny, params.nz))
@@ -93,7 +94,10 @@ for k in range (pool.my_n_traj):
         deriv_eta_3D_fitted = fom.shift_x_input_3D(deriv_eta_3D, -shifting_amount[i])
         deriv_fitted[:, i] = np.concatenate((deriv_v_3D_fitted.ravel(), deriv_eta_3D_fitted.ravel()))
         shifting_speed[i] = fom.evaluate_fom_shifting_speed(traj_fitted[:, i], deriv_fitted[:, i])
-        
+        disturbance_energy[i] = fom.inner_product_3D(traj[:params.nx * params.ny * params.nz, i].reshape((params.nx, params.ny, params.nz)),
+                                                     traj[params.nx * params.ny * params.nz:, i].reshape((params.nx, params.ny, params.nz)),
+                                                     traj[:params.nx * params.ny * params.nz, i].reshape((params.nx, params.ny, params.nz)),
+                                                     traj[params.nx * params.ny * params.nz:, i].reshape((params.nx, params.ny, params.nz)))        
     plt.plot(tsave, shifting_amount)
     plt.xlabel("Time")
     plt.ylabel("Shifting amount c(t)")
@@ -105,6 +109,13 @@ for k in range (pool.my_n_traj):
     plt.xlabel("Time")
     plt.ylabel("Shifting speed c'(t)")
     plt.title("Shifting speed over time")
+    plt.tight_layout()
+    plt.show()
+    
+    plt.plot(tsave, disturbance_energy)
+    plt.xlabel("Time")
+    plt.ylabel("Disturbance Kinetic Energy")
+    plt.title("Disturbance Kinetic Energy over time")
     plt.tight_layout()
     plt.show()
         
@@ -171,65 +182,65 @@ for k in range (pool.my_n_traj):
         deriv_v_fitted_slice_ycheck_all_z_centered[:, params.t_check_list_POD.index(t_check)] = deriv_v_fitted_slice_ycheck[:, params.nz//2]
         deriv_eta_fitted_slice_ycheck_all_z_centered[:, params.t_check_list_POD.index(t_check)] = deriv_eta_fitted_slice_ycheck[:, params.nz//2]  
 
-        v_min = np.min(v_slice_ycheck)
-        v_max = np.max(v_slice_ycheck)
-        # v_spacing = 1e-6  # 等高线间距
+        # v_min = np.min(v_slice_ycheck)
+        # v_max = np.max(v_slice_ycheck)
+        # # v_spacing = 1e-6  # 等高线间距
         
-        eta_min = np.min(eta_slice_ycheck)
-        eta_max = np.max(eta_slice_ycheck)
-        # eta_spacing = 1e-6  # 等高线间距
+        # eta_min = np.min(eta_slice_ycheck)
+        # eta_max = np.max(eta_slice_ycheck)
+        # # eta_spacing = 1e-6  # 等高线间距
 
-        # 构造等高线 levels
-        # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
+        # # 构造等高线 levels
+        # # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
         # plt.figure(figsize=(10,6))
         # # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
-        # plt.pcolormesh(x, z, v_slice_ycheck.T, cmap='bwr')
+        # plt.pcolormesh(params.x, params.z, v_slice_ycheck.T, cmap='bwr')
         # plt.colorbar()
         # plt.xlabel(r"$x$")
         # plt.ylabel(r"$z$")
-        # plt.xlim(np.min(x), np.max(x))
-        # plt.ylim(np.min(z), np.max(z))
-        # plt.title(f"Normal velocity v at t={t_check}, y={y_check}")
+        # plt.xlim(np.min(params.x), np.max(params.x))
+        # plt.ylim(np.min(params.z), np.max(params.z))
+        # plt.title(f"Normal velocity v at t={t_check}, y={params.y_check}")
         # plt.tight_layout()
         # plt.show()
         
         # plt.figure(figsize=(10, 6))
         # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
-        # cs = plt.contour(x, z, v_slice_ycheck.T, colors='black', linewidths=0.6)
+        # cs = plt.contour(params.x, params.z, v_slice_ycheck.T, colors='black', linewidths=0.6)
         # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
         # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
         # # plt.colorbar()
         # plt.xlabel(r"$x$")
         # plt.ylabel(r"$z$")
-        # plt.xlim(np.min(x), np.max(x))
-        # plt.ylim(np.min(z), np.max(z))
-        # plt.title(f"Contours of normal velocity v at t={t_check}, y={y_check}")
+        # plt.xlim(np.min(params.x), np.max(params.x))
+        # plt.ylim(np.min(params.z), np.max(params.z))
+        # plt.title(f"Contours of normal velocity v at t={t_check}, y={params.y_check}")
         # plt.tight_layout()
         # plt.show()
         
         # plt.figure(figsize=(10,6))
         # # plt.contourf(x, z, v_slice_ycheck.T, levels=levels, cmap='jet')
-        # plt.pcolormesh(x, z, v_fitted_slice_ycheck.T, cmap='bwr')
+        # plt.pcolormesh(params.x, params.z, v_fitted_slice_ycheck.T, cmap='bwr')
         # plt.colorbar()
         # plt.xlabel(r"$x$")
         # plt.ylabel(r"$z$")
-        # plt.xlim(np.min(x), np.max(x))
-        # plt.ylim(np.min(z), np.max(z))
-        # plt.title(f"Fitted normal velocity v at t={t_check}, y={y_check}")
+        # plt.xlim(np.min(params.x), np.max(params.x))
+        # plt.ylim(np.min(params.z), np.max(params.z))
+        # plt.title(f"Fitted normal velocity v at t={t_check}, y={params.y_check}")
         # plt.tight_layout()
         # plt.show()
         
         # plt.figure(figsize=(10, 6))
         # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
-        # cs = plt.contour(x, z, v_fitted_slice_ycheck.T, colors='black', linewidths=0.6)
+        # cs = plt.contour(params.x, params.z, v_fitted_slice_ycheck.T, colors='black', linewidths=0.6)
         # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
         # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
         # # plt.colorbar()
         # plt.xlabel(r"$x$")
         # plt.ylabel(r"$z$")
-        # plt.xlim(np.min(x), np.max(x))
-        # plt.ylim(np.min(z), np.max(z))
-        # plt.title(f"Contours of fitted normal velocity v at t={t_check}, y={y_check}")
+        # plt.xlim(np.min(params.x), np.max(params.x))
+        # plt.ylim(np.min(params.z), np.max(params.z))
+        # plt.title(f"Contours of fitted normal velocity v at t={t_check}, y={params.y_check}")
         # plt.tight_layout()
         # plt.show()
         

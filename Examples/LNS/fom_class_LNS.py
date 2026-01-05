@@ -1,8 +1,8 @@
 import numpy as np
 import scipy
-from scipy.fftpack import shift
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from scipy.optimize import minimize_scalar
 
 def Chebyshev_diff_mat(y):
     
@@ -280,7 +280,7 @@ class LNS:
         Input: q_vec_snapshots of shape (2 * nx * ny * nz, N_snapshots)
         Output: PSD of shape (nx, nz, N_snapshots), storing the energy at each (kx, kz) mode.
         
-        PSD(kx, kz) = 1/(2 * alpha^2 + 2 * beta^2) * \int_-1^1 (|dv_breve_km/dy|^2 + (alpha^2 + beta^2) |v_breve_km|^2 + |eta_breve_km|^2) dy
+        PSD(kx, kz) = 1/(2 * alpha^2 + 2 * beta^2) * int_-1^1 (|dv_breve_km/dy|^2 + (alpha^2 + beta^2) |v_breve_km|^2 + |eta_breve_km|^2) dy
         """
         
         N_snapshots = q_vec_snapshots.shape[1]
@@ -746,7 +746,7 @@ class LNS:
         shifting_amount = np.unwrap(shifting_amount, period=self.Lx) # unwrap the shifting amount to avoid discontinuities due to periodicity
         
         return q_vec_fitted, shifting_amount
-   
+        
     def assemble_fom_linear_operator(self):
         """Assemble the full linear operator L for the FOM."""
         

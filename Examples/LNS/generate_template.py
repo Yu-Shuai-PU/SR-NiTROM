@@ -47,11 +47,8 @@ fom = fom_class_LNS.LNS(params.Lx, params.Ly, params.Lz,
                         params.U_base, params.U_base_dy, params.U_base_dyy)
 tstep_kse_fom = fom_class_LNS.time_step_LNS(fom, params.time)
 
-psi0 = params.amp * (1 - params.Y**2)**2 * (params.X - params.Lx/2)**2 * ((params.Z - params.Lz/2)/2)**2 * np.exp(-((params.X - params.Lx/2)/2)**2 - ((params.Z - params.Lz/2)/2)**2) 
-
-# psi0 = params.amp * (1 - params.Y**2)**2 * ((params.X - params.Lx/2)/2) * (params.Z - params.Lz/2)**2 * np.exp(-((params.X - params.Lx/2)/2)**2 - ((params.Z - params.Lz/2)/2)**2)
-v0 = fom.diff_z(psi0, order = 1)
-eta0 = fom.diff_x(fom.diff_1_y(psi0), order = 1)
+v0 = fom.diff_z(params.psi0[:, :, :, 0], order = 1)
+eta0 = fom.diff_x(fom.diff_1_y(params.psi0[:, :, :, 0]), order = 1)
 
 # endregion
 
@@ -120,7 +117,7 @@ plt.show()
 traj_v = traj[0 : params.nx * params.ny * params.nz, :].reshape((params.nx, params.ny, params.nz, -1))
 traj_eta = traj[params.nx * params.ny * params.nz : , :].reshape((params.nx, params.ny, params.nz, -1))
 
-# for t_check in params.t_check_list:
+# for t_check in params.t_check_list_POD:
 
 #     idx_sample = int(t_check / (params.dt * params.nsave))
 #     v_slice = traj_v[:, :, :, idx_sample]
@@ -243,12 +240,16 @@ plt.legend()
 plt.tight_layout()
 plt.show()
 
-traj_template = np.cos(2 * np.pi * params.x[:, np.newaxis, np.newaxis] / params.Lx) * f_opt[np.newaxis, :, np.newaxis] * np.ones((1, 1, params.nz))
-traj_template_dx = fom.diff_x(traj_template, order = 1)
-traj_template_dxx = fom.diff_x(traj_template, order = 2)
-traj_template = traj_template.ravel()
-traj_template_dx = traj_template_dx.ravel()
-traj_template_dxx = traj_template_dxx.ravel()
+v_template = np.cos(2 * np.pi * params.x[:, np.newaxis, np.newaxis] / params.Lx) * f_opt[np.newaxis, :params.ny, np.newaxis] * np.ones((1, 1, params.nz))
+eta_template = np.cos(2 * np.pi * params.x[:, np.newaxis, np.newaxis] / params.Lx) * f_opt[np.newaxis, params.ny:, np.newaxis] * np.ones((1, 1, params.nz))
+v_template_dx = -(2 * np.pi / params.Lx) * np.sin(2 * np.pi * params.x[:, np.newaxis, np.newaxis] / params.Lx) * f_opt[np.newaxis, :params.ny, np.newaxis] * np.ones((1, 1, params.nz))
+eta_template_dx = -(2 * np.pi / params.Lx) * np.sin(2 * np.pi * params.x[:, np.newaxis, np.newaxis] / params.Lx) * f_opt[np.newaxis, params.ny:, np.newaxis] * np.ones((1, 1, params.nz))
+v_template_dxx = -((2 * np.pi / params.Lx)**2) * np.cos(2 * np.pi * params.x[:, np.newaxis, np.newaxis] / params.Lx) * f_opt[np.newaxis, :params.ny, np.newaxis] * np.ones((1, 1, params.nz))
+eta_template_dxx = -((2 * np.pi / params.Lx)**2) * np.cos(2 * np.pi * params.x[:, np.newaxis, np.newaxis] / params.Lx) * f_opt[np.newaxis, params.ny:, np.newaxis] * np.ones((1, 1, params.nz))
+
+traj_template = np.concatenate((v_template.ravel(), eta_template.ravel()))
+traj_template_dx = np.concatenate((v_template_dx.ravel(), eta_template_dx.ravel()))
+traj_template_dxx = np.concatenate((v_template_dxx.ravel(), eta_template_dxx.ravel()))
 np.save(params.fname_traj_template, traj_template)
 np.save(params.fname_traj_template_dx, traj_template_dx)
 np.save(params.fname_traj_template_dxx, traj_template_dxx)

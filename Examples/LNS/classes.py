@@ -390,39 +390,16 @@ class optimization_objects:
             f = kwargs.get('forcing_interp',None)
             f = f(t) if f != None else np.zeros(len(z))
             u = u.copy() if hasattr(u,"__len__") == True else u(t)
-            
             cdot = self.compute_shift_speed(z, operators)
             udx_linear = operators[-1]
             udx  = np.einsum('ij, j', udx_linear, z)
             
             dzdt = u + f + cdot * udx
             dcdt = cdot
-            # cdot_denom_linear = operators[-2]
-            # udx_linear = operators[-1]
-            # cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
-            # # print("time = ", t, "cdot_denom", cdot_denom)
-            # # print("cdot_denom:", cdot_denom)
-            # if abs(cdot_denom) < self.cdot_denom_threshold:
-            #     # raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
-            #     print("Warning: Denominator in reconstruction equation of the shifting speed is too close to zero! Modified shift speed to zero.")
-            #     dcdt = 0.0
-            #     # cdot_denom = 1e-2 * np.sign(cdot_denom)
-            #     return np.hstack((dzdt, dcdt))
-            # else:
-            #     udx = np.einsum('ij, j', udx_linear,z)
-
-            #     cdot_numer = 0.0
-                
-            #     for (i, k) in enumerate(self.poly_comp):
-            #         equation = ",".join(self.einsum_ss_rhs_poly[i])
-            #         operands = [operators[i]] + [z for _ in range(k)]
-            #         dzdt += np.einsum(equation,*operands)
-            #         equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
-            #         operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
-            #         cdot_numer -= np.einsum(equation,*operands)
-                    
-            #     dzdt += (cdot_numer/cdot_denom) * udx
-            #     dcdt = cdot_numer/cdot_denom
+            for (i, k) in enumerate(self.poly_comp):
+                equation = ",".join(self.einsum_ss_rhs_poly[i])
+                operands = [operators[i]] + [z for _ in range(k)]
+                dzdt += np.einsum(equation,*operands)
                 
         return np.hstack((dzdt, dcdt))
     
@@ -460,24 +437,7 @@ class optimization_objects:
         """
             Function to compute the shift speed given a state z and the ROM operators
         """
-        cdot = self.compute_shift_speed_numer(z, operators) / self.compute_shift_speed_denom(z, operators)
-        # cdot_denom_linear = operators[-2]
-        # cdot_denom = np.einsum('i,i',cdot_denom_linear,z)
-        # # print("cdot_denom:", cdot_denom)
-        # if abs(cdot_denom) < self.cdot_denom_threshold:
-        #     # raise ValueError ("Denominator in reconstruction equation of the shifting speed is too close to zero!")
-        #     print("Warning: Denominator in reconstruction equation of the shifting speed is too close to zero! Modified shift speed to zero.")
-        #     return 0.0
-        # else:
-        #     cdot_numer = 0.0
-            
-        #     for (i, k) in enumerate(self.poly_comp):
-        #         equation = ",".join(self.einsum_ss_rhs_shift_speed_numer[i])
-        #         operands = [operators[i + len(self.poly_comp)]] + [z for _ in range(k)]
-        #         cdot_numer -= np.einsum(equation,*operands)
-                
-        #     # print("cdot:", cdot_numer/cdot_denom)
-        #     return cdot_numer/cdot_denom
+        return self.compute_shift_speed_numer(z, operators) / self.compute_shift_speed_denom(z, operators)
     
     def compute_shift_speed_numer(self, z, operators):
         """
@@ -537,6 +497,8 @@ class optimization_objects:
             
             dhdzT = self.evaluate_shift_speed_adjoint(fz(t),fcdot(t),*operators)
             
+            dxidt += dhdzT * (np.einsum('i,i', fz(t), PhiF_dx.T@Psi@xi) + const)
+            
             # dhdzT = -fcdot(t) * operators[-2]
 
             # for (i, k) in enumerate(self.poly_comp):
@@ -549,7 +511,7 @@ class optimization_objects:
 
             #         dhdzT -= np.einsum(equation,*operands)
 
-            dxidt += dhdzT * (np.einsum('i,i', fz(t), PhiF_dx.T@Psi@xi) + const)
+            # dxidt += (dhdzT/self.compute_shift_speed_denom(fz(t), operators)) * (np.einsum('i,i', fz(t), PhiF_dx.T@Psi@xi) + const)
 
         return dxidt
     

@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.integrate import cumulative_trapezoid
 
 def spectral_resample(data, x_old, z_old, fom, zoom_factor=4):
     """
@@ -55,112 +56,113 @@ def spectral_resample(data, x_old, z_old, fom, zoom_factor=4):
     
     return data_new, x_new, z_new
 
-def plot_ROM_vs_FOM(opt_obj, traj_idx, fig_path, relative_error, relative_error_fitted,
-                    disturbance_kinetic_energy_FOM, disturbance_kinetic_energy_SRG,
-                    shifting_amount_SRG, shifting_amount_FOM,
-                    shifting_speed_SRG, shifting_speed_FOM,
-                    traj_fitted_proj, sol_SRG,
-                    traj_FOM, traj_fitted_FOM, traj_SRG, traj_fitted_SRG, num_modes_to_plot,
-                    nx, ny, nz, dt, nsave, x, y, z, t_check_list, y_check):
-
+def plot_SRG_vs_FOM(opt_obj, traj_idx, fig_path, relative_error_SRG_idx, relative_error_fitted_SRG_idx,
+                disturbance_kinetic_energy_FOM_idx, disturbance_kinetic_energy_SRG_idx,
+                shifting_amount_FOM_idx, shifting_amount_SRG_idx,
+                shifting_speed_FOM_idx, shifting_speed_SRG_idx,
+                traj_fitted_FOM_proj_POD_idx, sol_SRG_idx,
+                traj_FOM_idx, traj_SRG_idx, 
+                traj_fitted_FOM_idx, traj_fitted_SRG_idx,
+                num_modes_to_plot, nx, ny, nz, dt, nsave,
+                x, y, z, t_check_list_POD, y_check):
 
     plt.figure(figsize=(10,6))
-    plt.semilogy(opt_obj.time, relative_error, label="Relative error over time")
-    plt.semilogy(opt_obj.time, relative_error_fitted, label="Relative error fitted over time")
-    plt.xlabel("Time")
-    plt.ylabel("Relative error")
-    plt.title(f"Relative error between SR-Galerkin ROM and FOM along trajectory {traj_idx}")
+    plt.semilogy(opt_obj.time, relative_error_SRG_idx[:len(opt_obj.time)], 'r-', label="Relative error")
+    plt.semilogy(opt_obj.time, relative_error_fitted_SRG_idx[:len(opt_obj.time)], 'r--', label="Relative error (fitted snapshots)")
+    plt.xlabel("Time t")
+    plt.ylabel("Relative Error")
+    plt.title(f"Relative error of FOM and SR-Galerkin ROM along trajectory {traj_idx}")
     plt.legend()
     plt.tight_layout()
-    # plt.show()
     plt.savefig(fig_path + "relative_error_traj_%03d.png"%traj_idx)
     plt.close()
     
     plt.figure(figsize=(10,6))
-    plt.plot(opt_obj.time, disturbance_kinetic_energy_FOM, label="Disturbance kinetic energy FOM")
-    plt.plot(opt_obj.time, disturbance_kinetic_energy_SRG, label="Disturbance kinetic energy SRG")
-    plt.xlabel("Time")
-    plt.ylabel("Disturbance kinetic energy")
-    plt.title(f"Disturbance kinetic energy along trajectory {traj_idx}")
+    plt.plot(opt_obj.time, disturbance_kinetic_energy_FOM_idx[:len(opt_obj.time)], 'k-', label="FOM")
+    plt.plot(opt_obj.time, disturbance_kinetic_energy_SRG_idx[:len(opt_obj.time)], 'r--', label="SR-Galerkin ROM")
+    plt.xlabel("Time t")
+    plt.ylabel("Kinetic Energy E(t)")
+    plt.title(f"Disturbance kinetic energy of FOM and SR-Galerkin ROM along trajectory {traj_idx}")
     plt.legend()
     plt.tight_layout()
-    # plt.show()
     plt.savefig(fig_path + "disturbance_kinetic_energy_traj_%03d.png"%traj_idx)
     plt.close()
     
     plt.figure(figsize=(10,6))
-    plt.plot(opt_obj.time, shifting_amount_SRG, label="Shifting amount SRG")
-    plt.plot(opt_obj.time, shifting_amount_FOM, label="Shifting amount FOM")
-    plt.xlabel("Time")
-    plt.ylabel("Shifting amount c(t)")
-    plt.title(f"Shifting amount c(t) between SR-Galerkin ROM and FOM along trajectory {traj_idx}")
+    plt.plot(opt_obj.time, shifting_amount_FOM_idx[:len(opt_obj.time)], 'k-', label="FOM")
+    plt.plot(opt_obj.time, shifting_amount_SRG_idx[:len(opt_obj.time)], 'r--', label="SR-Galerkin ROM")
+    plt.xlabel("Time t")
+    plt.ylabel("c(t)")
+    plt.title(f"Shifting amount of FOM and SR-Galerkin ROM along trajectory {traj_idx}")
     plt.legend()
     plt.tight_layout()
-    # plt.show()
     plt.savefig(fig_path + "shifting_amount_traj_%03d.png"%traj_idx)
     plt.close()
     
     plt.figure(figsize=(10,6))
-    plt.plot(opt_obj.time, shifting_speed_SRG, label="Shifting speed SRG")
-    plt.plot(opt_obj.time, shifting_speed_FOM, label="Shifting speed FOM")
-    plt.xlabel("Time")
-    plt.ylabel("Shifting speed c_dot(t)")
-    plt.title(f"Shifting speed c_dot(t) between SR-Galerkin ROM and FOM along trajectory {traj_idx}")
+    plt.plot(opt_obj.time, shifting_speed_FOM_idx[:len(opt_obj.time)], 'k-', label="FOM")
+    plt.plot(opt_obj.time, shifting_speed_SRG_idx[:len(opt_obj.time)], 'r--', label="SR-Galerkin ROM")
+    plt.xlabel("Time t")
+    plt.ylabel("dc/dt")
+    plt.title(f"Shifting speed of FOM and SR-Galerkin ROM along trajectory {traj_idx}")
     plt.legend()
     plt.tight_layout()
-    # plt.show()
     plt.savefig(fig_path + "shifting_speed_traj_%03d.png"%traj_idx)
     plt.close()
+    
+    integrated_FOM = cumulative_trapezoid(shifting_speed_FOM_idx[:len(opt_obj.time)], 
+                                      opt_obj.time, 
+                                      initial=0)
+    
+    plt.figure(figsize=(10,6))
+    plt.plot(opt_obj.time, shifting_amount_FOM_idx[:len(opt_obj.time)], 'k-', label="FOM c(t)")
+    plt.plot(opt_obj.time, integrated_FOM + shifting_amount_FOM_idx[0], 'k--', label="Integrated FOM dc/dt")
+    plt.xlabel("Time t")
+    plt.ylabel("Shifting Amount c(t)")
+    plt.title(f"Verification of shifting amount via integrating shifting speed along trajectory {traj_idx}")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+    
     
     ### Plot the leading POD modes amplitudes
     
     for idx_mode in range (num_modes_to_plot):
         plt.figure(figsize=(10,6))
-        plt.plot(opt_obj.time, sol_SRG[idx_mode,:], label=f"SRG Mode {idx_mode} amplitude over time")
-        plt.plot(opt_obj.time, traj_fitted_proj[idx_mode,:], label=f"FOM Mode {idx_mode} amplitude over time")
-        plt.xlabel("Time")
-        plt.ylim([-0.1, 0.1])
-        plt.ylabel(f"Mode {idx_mode} amplitude")
-        plt.title(f"Mode {idx_mode} amplitude over time along trajectory {traj_idx}")
+        plt.plot(opt_obj.time, traj_fitted_FOM_proj_POD_idx[idx_mode,:len(opt_obj.time)], 'k-', label=f"FOM")
+        plt.plot(opt_obj.time, sol_SRG_idx[idx_mode,:len(opt_obj.time)], 'r--', label=f"SR-Galerkin ROM")
+        plt.xlabel("Time t")
+        plt.ylim([-0.2, 0.2])
+        plt.ylabel(f"Amplitude")
+        plt.title(f"Mode {idx_mode} amplitude of FOM projection and SR-Galerkin ROM prediction along trajectory {traj_idx}")
         plt.legend()
         plt.tight_layout()
-        # plt.show()
         plt.savefig(fig_path + "mode_%02d_amplitude_traj_%03d.png"%(idx_mode, traj_idx))
         plt.close()
-    
-    # np.save(fname_traj_FOM%traj_idx,X_FOM)
-    # np.save(fname_traj_fitted_FOM%traj_idx,X_fitted_FOM)
-    # np.save(fname_shift_amount_FOM%traj_idx,c_FOM)
-    # np.save(fname_shift_speed_FOM%traj_idx,cdot_FOM)    
-    # np.save(fname_traj_SRG%traj_idx,X_SRG)
-    # np.save(fname_traj_fitted_SRG%traj_idx,X_fitted_SRG)
-    # np.save(fname_shift_amount_SRG%traj_idx,c_SRG)
-    # np.save(fname_shift_speed_SRG%traj_idx,cdot_SRG)
-    # np.save(fname_relative_error_SRG%traj_idx,relative_error)
-    
+        
     ### Plotting, things to be done:
     ### 1. switch from contourf to pcolormesh
     ### 2. apply Fourier spectral interpolation to plot a 40-mode solution on a 256-point grid for better visualization
     
-    traj_FOM_v = traj_FOM[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-    traj_FOM_eta = traj_FOM[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
-    traj_fitted_FOM_v = traj_fitted_FOM[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-    traj_fitted_FOM_eta = traj_fitted_FOM[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
-    traj_SRG_v = traj_SRG[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-    traj_SRG_eta = traj_SRG[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
-    traj_fitted_SRG_v = traj_fitted_SRG[0 : nx * ny * nz, :].reshape((nx, ny, nz, -1))
-    traj_fitted_SRG_eta = traj_fitted_SRG[nx * ny * nz : , :].reshape((nx, ny, nz, -1))
+    traj_FOM_v = traj_FOM_idx[0 : nx * ny * nz, :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_FOM_eta = traj_FOM_idx[nx * ny * nz : , :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_fitted_FOM_v = traj_fitted_FOM_idx[0 : nx * ny * nz, :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_fitted_FOM_eta = traj_fitted_FOM_idx[nx * ny * nz : , :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_SRG_v = traj_SRG_idx[0 : nx * ny * nz, :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_SRG_eta = traj_SRG_idx[nx * ny * nz : , :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_fitted_SRG_v = traj_fitted_SRG_idx[0 : nx * ny * nz, :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_fitted_SRG_eta = traj_fitted_SRG_idx[nx * ny * nz : , :len(opt_obj.time)].reshape((nx, ny, nz, -1))
     
-    v_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list)))
-    eta_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list)))
-    v_fitted_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list)))
-    eta_fitted_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list)))
-    v_slice_ycheck_all_z_centered_SRG = np.zeros((nx, len(t_check_list)))
-    eta_slice_ycheck_all_z_centered_SRG = np.zeros((nx, len(t_check_list)))
-    v_fitted_slice_ycheck_all_z_centered_SRG = np.zeros((nx, len(t_check_list)))
-    eta_fitted_slice_ycheck_all_z_centered_SRG = np.zeros((nx, len(t_check_list)))
+    v_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list_POD)))
+    eta_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list_POD)))
+    v_fitted_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list_POD)))
+    eta_fitted_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list_POD)))
+    v_slice_ycheck_all_z_centered_SRG = np.zeros((nx, len(t_check_list_POD)))
+    eta_slice_ycheck_all_z_centered_SRG = np.zeros((nx, len(t_check_list_POD)))
+    v_fitted_slice_ycheck_all_z_centered_SRG = np.zeros((nx, len(t_check_list_POD)))
+    eta_fitted_slice_ycheck_all_z_centered_SRG = np.zeros((nx, len(t_check_list_POD)))
 
-    for t_check in t_check_list:
+    for t_check in t_check_list_POD:
 
         idx_sample = int(t_check / (dt * nsave))
         v_slice_FOM = traj_FOM_v[:, :, :, idx_sample]
@@ -182,14 +184,14 @@ def plot_ROM_vs_FOM(opt_obj, traj_idx, fig_path, relative_error, relative_error_
         eta_slice_SRG_ycheck = eta_slice_SRG[:, idx_y_check, :]
         eta_fitted_slice_SRG_ycheck = eta_fitted_slice_SRG[:, idx_y_check, :]
         
-        v_fitted_slice_ycheck_all_z_centered_FOM[:, t_check_list.index(t_check)] = v_fitted_slice_FOM_ycheck[:, nz//2]
-        eta_fitted_slice_ycheck_all_z_centered_FOM[:, t_check_list.index(t_check)] = eta_fitted_slice_FOM_ycheck[:, nz//2]
-        v_slice_ycheck_all_z_centered_FOM[:, t_check_list.index(t_check)] = v_slice_FOM_ycheck[:, nz//2]
-        eta_slice_ycheck_all_z_centered_FOM[:, t_check_list.index(t_check)] = eta_slice_FOM_ycheck[:, nz//2]
-        v_fitted_slice_ycheck_all_z_centered_SRG[:, t_check_list.index(t_check)] = v_fitted_slice_SRG_ycheck[:, nz//2]
-        eta_fitted_slice_ycheck_all_z_centered_SRG[:, t_check_list.index(t_check)] = eta_fitted_slice_SRG_ycheck[:, nz//2]
-        v_slice_ycheck_all_z_centered_SRG[:, t_check_list.index(t_check)] = v_slice_SRG_ycheck[:, nz//2]
-        eta_slice_ycheck_all_z_centered_SRG[:, t_check_list.index(t_check)] = eta_slice_SRG_ycheck[:, nz//2]
+        v_fitted_slice_ycheck_all_z_centered_FOM[:, t_check_list_POD.index(t_check)] = v_fitted_slice_FOM_ycheck[:, nz//2]
+        eta_fitted_slice_ycheck_all_z_centered_FOM[:, t_check_list_POD.index(t_check)] = eta_fitted_slice_FOM_ycheck[:, nz//2]
+        v_slice_ycheck_all_z_centered_FOM[:, t_check_list_POD.index(t_check)] = v_slice_FOM_ycheck[:, nz//2]
+        eta_slice_ycheck_all_z_centered_FOM[:, t_check_list_POD.index(t_check)] = eta_slice_FOM_ycheck[:, nz//2]
+        v_fitted_slice_ycheck_all_z_centered_SRG[:, t_check_list_POD.index(t_check)] = v_fitted_slice_SRG_ycheck[:, nz//2]
+        eta_fitted_slice_ycheck_all_z_centered_SRG[:, t_check_list_POD.index(t_check)] = eta_fitted_slice_SRG_ycheck[:, nz//2]
+        v_slice_ycheck_all_z_centered_SRG[:, t_check_list_POD.index(t_check)] = v_slice_SRG_ycheck[:, nz//2]
+        eta_slice_ycheck_all_z_centered_SRG[:, t_check_list_POD.index(t_check)] = eta_slice_SRG_ycheck[:, nz//2]
 
         v_min = np.min(v_slice_FOM_ycheck)
         v_max = np.max(v_slice_FOM_ycheck)
@@ -209,10 +211,9 @@ def plot_ROM_vs_FOM(opt_obj, traj_idx, fig_path, relative_error, relative_error_
         plt.ylabel(r"$z$")
         plt.xlim(np.min(x), np.max(x))
         plt.ylim(np.min(z), np.max(z))
-        plt.title(f"Contours of normal velocity v at t={t_check}, y={y_check}")
+        plt.title(f"Normal velocity of FOM (black) and SR-Galerkin ROM (red) at t={t_check}, y={y_check}")
         plt.tight_layout()
-        # plt.show()
-        plt.savefig(fig_path + "contours_v_t_%03d_traj_%03d.png"%(t_check,traj_idx))
+        plt.savefig(fig_path + "v_t_%03d_y_%03d_traj_%03d.png"%(t_check,y_check,traj_idx))
         plt.close()
         
         plt.figure(figsize=(10, 6))
@@ -222,59 +223,240 @@ def plot_ROM_vs_FOM(opt_obj, traj_idx, fig_path, relative_error, relative_error_
         plt.ylabel(r"$z$")
         plt.xlim(np.min(x), np.max(x))
         plt.ylim(np.min(z), np.max(z))
-        plt.title(f"Contours of fitted normal velocity v at t={t_check}, y={y_check}")
+        plt.title(f"Fitted normal velocity of FOM (black) and SR-Galerkin ROM (red) at t={t_check}, y={y_check}")
         plt.tight_layout()
-        # plt.show()
-        plt.savefig(fig_path + "contours_fitted_v_t_%03d_traj_%03d.png"%(t_check,traj_idx))
+        plt.savefig(fig_path + "fitted_v_t_%03d_y_%03d_traj_%03d.png"%(t_check,y_check,traj_idx))
         plt.close()
         
         plt.figure(figsize=(10, 6))
-        plt.plot(x, eta_fitted_slice_ycheck_all_z_centered_SRG[:, t_check_list.index(t_check)], label=f"SRG t={t_check_list[t_check_list.index(t_check)]}")
-        plt.plot(x, eta_fitted_slice_ycheck_all_z_centered_FOM[:, t_check_list.index(t_check)], '--', label=f"FOM t={t_check_list[t_check_list.index(t_check)]}")
+        plt.plot(x, eta_slice_ycheck_all_z_centered_FOM[:, t_check_list_POD.index(t_check)], 'k-', label=f"FOM t={t_check}")
+        plt.plot(x, eta_slice_ycheck_all_z_centered_SRG[:, t_check_list_POD.index(t_check)], 'r--', label=f"SR-Galerkin ROM t={t_check}")
         plt.xlabel(r"$x$")
-        plt.ylabel(r"Fitted normal vorticity at y={}".format(y_check))
-        plt.title(f"Fitted normal vorticity at y={y_check} at t={t_check}")
+        plt.ylabel(f"Normal vorticity at (y,z)=({y_check}, {z[nz//2]})")
+        plt.title(f"Normal vorticity at (y,z)=({y_check}, {z[nz//2]}) at t={t_check}")
         plt.legend()
         plt.tight_layout()
-        # plt.show()
-        plt.savefig(fig_path + "fitted_normal_vorticity_y_%03d_t_%03d_traj_%03d.png"%(y_check,t_check,traj_idx))
+        plt.savefig(fig_path + "eta_t_%03d_y_%03d_z_%03d_traj_%03d.png"%(t_check,y_check,z[nz//2],traj_idx))
         plt.close()
         
         plt.figure(figsize=(10, 6))
-        plt.plot(x, eta_slice_ycheck_all_z_centered_SRG[:, t_check_list.index(t_check)], label=f"SRG t={t_check_list[t_check_list.index(t_check)]}")
-        plt.plot(x, eta_slice_ycheck_all_z_centered_FOM[:, t_check_list.index(t_check)], '--', label=f"FOM t={t_check_list[t_check_list.index(t_check)]}")
+        plt.plot(x, eta_fitted_slice_ycheck_all_z_centered_FOM[:, t_check_list_POD.index(t_check)], 'k-', label=f"FOM t={t_check}")
+        plt.plot(x, eta_fitted_slice_ycheck_all_z_centered_SRG[:, t_check_list_POD.index(t_check)], 'r--', label=f"SR-Galerkin ROM t={t_check}")
         plt.xlabel(r"$x$")
-        plt.ylabel(r"Normal vorticity at y={}".format(y_check))
-        plt.title(f"Normal vorticity at y={y_check} at t={t_check}")
+        plt.ylabel(f"Fitted normal vorticity at (y,z)=({y_check}, {z[nz//2]})")
+        plt.title(f"Fitted normal vorticity at (y,z)=({y_check}, {z[nz//2]}) at t={t_check}")
         plt.legend()
         plt.tight_layout()
-        # plt.show()
-        plt.savefig(fig_path + "normal_vorticity_y_%03d_t_%03d_traj_%03d.png"%(y_check,t_check,traj_idx))
+        plt.savefig(fig_path + "fitted_eta_t_%03d_y_%03d_z_%03d_traj_%03d.png"%(t_check,y_check,z[nz//2],traj_idx))
         plt.close()
         
-        
-    # plt.figure(figsize=(10,6))
-    # for i in range (len(t_check_list)):
-    #     plt.plot(x, eta_fitted_slice_ycheck_all_z_centered_SRG[:, i], label=f"SRG t={t_check_list[i]}")
-    #     plt.plot(x, eta_fitted_slice_ycheck_all_z_centered_FOM[:, i], '--', label=f"FOM t={t_check_list[i]}")
-    # plt.xlabel(r"$x$")
-    # plt.ylabel(r"Fitted normal vorticity at y={}".format(y_check))
-    # plt.title("Fitted normal vorticity at y={} over time".format(y_check))
-    # plt.legend()
-    # plt.tight_layout()
-    # # plt.show()
-    # plt.savefig(fig_path + "fitted_normal_vorticity_y_over_time_%03d.png"%y_check)
-    # plt.close()
+def plot_SRN_vs_FOM(opt_obj, traj_idx, fig_path, relative_error_SRG_idx, relative_error_SRN_idx,
+                    relative_error_fitted_SRG_idx, relative_error_fitted_SRN_idx,
+                    disturbance_kinetic_energy_FOM_idx, disturbance_kinetic_energy_SRG_idx, disturbance_kinetic_energy_SRN_idx,
+                    shifting_amount_FOM_idx, shifting_amount_SRG_idx, shifting_amount_SRN_idx,
+                    shifting_speed_FOM_idx, shifting_speed_SRG_idx, shifting_speed_SRN_idx,
+                    traj_fitted_FOM_proj_POD_idx, traj_fitted_FOM_proj_NiTROM_idx, sol_SRG_idx, sol_SRN_idx,
+                    traj_FOM_idx, traj_SRG_idx, traj_SRN_idx, 
+                    traj_fitted_FOM_idx, traj_fitted_SRG_idx, traj_fitted_SRN_idx,
+                    num_modes_to_plot, nx, ny, nz, dt, nsave,
+                    x, y, z, t_check_list_SRN, y_check):
+
+    plt.figure(figsize=(10,6))
+    plt.semilogy(opt_obj.time, relative_error_SRG_idx[:len(opt_obj.time)], 'r-', label="Relative error, SR-Galerkin ROM")
+    plt.semilogy(opt_obj.time, relative_error_fitted_SRG_idx[:len(opt_obj.time)], 'r--', label="Relative error, SR-Galerkin ROM (fitted snapshots)")
+    plt.semilogy(opt_obj.time, relative_error_SRN_idx[:len(opt_obj.time)], 'b-', label="Relative error, SR-NiTROM")
+    plt.semilogy(opt_obj.time, relative_error_fitted_SRN_idx[:len(opt_obj.time)], 'b--', label="Relative error, SR-NiTROM (fitted snapshots)")
+    plt.xlabel("Time t")
+    plt.ylabel("Relative Error")
+    plt.title(f"Relative error of FOM, SR-Galerkin ROM, and SR-NiTROM along trajectory {traj_idx}")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(fig_path + "relative_error_traj_%03d.png"%traj_idx)
+    plt.close()
     
-    # plt.figure(figsize=(10,6))
-    # for i in range (len(t_check_list)):
-    #     plt.plot(x, eta_slice_ycheck_all_z_centered_SRG[:, i], label=f"SRG t={t_check_list[i]}")
-    #     plt.plot(x, eta_slice_ycheck_all_z_centered_FOM[:, i], '--', label=f"FOM t={t_check_list[i]}")
-    # plt.xlabel(r"$x$")
-    # plt.ylabel(r"Normal vorticity at y={}".format(y_check))
-    # plt.title("Normal vorticity at y={} over time".format(y_check))
-    # plt.legend()
-    # plt.tight_layout()
-    # # plt.show()
-    # plt.savefig(fig_path + "normal_vorticity_y_over_time_%03d.png"%y_check)
-    # plt.close()
+    plt.figure(figsize=(10,6))
+    plt.plot(opt_obj.time, disturbance_kinetic_energy_FOM_idx[:len(opt_obj.time)], 'k-', label="FOM")
+    plt.plot(opt_obj.time, disturbance_kinetic_energy_SRG_idx[:len(opt_obj.time)], 'r--', label="SR-Galerkin ROM")
+    plt.plot(opt_obj.time, disturbance_kinetic_energy_SRN_idx[:len(opt_obj.time)], 'b--', label="SR-NiTROM")
+    plt.xlabel("Time t")
+    plt.ylabel("Kinetic Energy E(t)")
+    plt.title(f"Disturbance kinetic energy of FOM, SR-Galerkin ROM and SR-NiTROM along trajectory {traj_idx}")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(fig_path + "disturbance_kinetic_energy_traj_%03d.png"%traj_idx)
+    plt.close()
+    
+    plt.figure(figsize=(10,6))
+    plt.plot(opt_obj.time, shifting_amount_FOM_idx[:len(opt_obj.time)], 'k-', label="FOM")
+    plt.plot(opt_obj.time, shifting_amount_SRG_idx[:len(opt_obj.time)], 'r--', label="SR-Galerkin ROM")
+    plt.plot(opt_obj.time, shifting_amount_SRN_idx[:len(opt_obj.time)], 'b--', label="SR-NiTROM")
+    plt.xlabel("Time t")
+    plt.ylabel("c(t)")
+    plt.title(f"Shifting amount of FOM, SR-Galerkin ROM and SR-NiTROM along trajectory {traj_idx}")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(fig_path + "shifting_amount_traj_%03d.png"%traj_idx)
+    plt.close()
+    
+    plt.figure(figsize=(10,6))
+    plt.plot(opt_obj.time, shifting_speed_FOM_idx[:len(opt_obj.time)], 'k-', label="FOM")
+    plt.plot(opt_obj.time, shifting_speed_SRG_idx[:len(opt_obj.time)], 'r--', label="SR-Galerkin ROM")
+    plt.plot(opt_obj.time, shifting_speed_SRN_idx[:len(opt_obj.time)], 'b--', label="SR-NiTROM")
+    plt.xlabel("Time t")
+    plt.ylabel("dc/dt")
+    plt.title(f"Shifting speed of FOM, SR-Galerkin ROM and SR-NiTROM along trajectory {traj_idx}")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(fig_path + "shifting_speed_traj_%03d.png"%traj_idx)
+    plt.close()
+    
+    ### Plot the leading POD modes amplitudes
+    
+    for idx_mode in range (num_modes_to_plot):
+        plt.figure(figsize=(10,6))
+        plt.plot(opt_obj.time, traj_fitted_FOM_proj_POD_idx[idx_mode,:len(opt_obj.time)], 'r-', label=f"POD projection of FOM")
+        plt.plot(opt_obj.time, traj_fitted_FOM_proj_NiTROM_idx[idx_mode,:len(opt_obj.time)], 'b-', label=f"NiTROM oblique projection of FOM")
+        plt.plot(opt_obj.time, sol_SRG_idx[idx_mode,:len(opt_obj.time)], 'r--', label=f"SR-Galerkin ROM prediction")
+        plt.plot(opt_obj.time, sol_SRN_idx[idx_mode,:len(opt_obj.time)], 'b--', label=f"SR-NiTROM prediction")
+        plt.xlabel("Time t")
+        plt.ylim([-0.2, 0.2])
+        plt.ylabel(f"Amplitude")
+        plt.title(f"Mode {idx_mode} amplitude of FOM, SR-Galerkin ROM and SR-NiTROM along trajectory {traj_idx}")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(fig_path + "mode_%02d_amplitude_traj_%03d.png"%(idx_mode, traj_idx))
+        plt.close()
+        
+    ### Plotting, things to be done:
+    ### 1. switch from contourf to pcolormesh
+    ### 2. apply Fourier spectral interpolation to plot a 40-mode solution on a 256-point grid for better visualization
+    
+    traj_FOM_v = traj_FOM_idx[0 : nx * ny * nz, :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_FOM_eta = traj_FOM_idx[nx * ny * nz : , :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_fitted_FOM_v = traj_fitted_FOM_idx[0 : nx * ny * nz, :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_fitted_FOM_eta = traj_fitted_FOM_idx[nx * ny * nz : , :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_SRG_v = traj_SRG_idx[0 : nx * ny * nz, :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_SRG_eta = traj_SRG_idx[nx * ny * nz : , :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_fitted_SRG_v = traj_fitted_SRG_idx[0 : nx * ny * nz, :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_fitted_SRG_eta = traj_fitted_SRG_idx[nx * ny * nz : , :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_SRN_v = traj_SRN_idx[0 : nx * ny * nz, :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_SRN_eta = traj_SRN_idx[nx * ny * nz : , :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_fitted_SRN_v = traj_fitted_SRN_idx[0 : nx * ny * nz, :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    traj_fitted_SRN_eta = traj_fitted_SRN_idx[nx * ny * nz : , :len(opt_obj.time)].reshape((nx, ny, nz, -1))
+    
+    v_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list_SRN)))
+    eta_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list_SRN)))
+    v_fitted_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list_SRN)))
+    eta_fitted_slice_ycheck_all_z_centered_FOM = np.zeros((nx, len(t_check_list_SRN)))
+    v_slice_ycheck_all_z_centered_SRG = np.zeros((nx, len(t_check_list_SRN)))
+    eta_slice_ycheck_all_z_centered_SRG = np.zeros((nx, len(t_check_list_SRN)))
+    v_fitted_slice_ycheck_all_z_centered_SRG = np.zeros((nx, len(t_check_list_SRN)))
+    eta_fitted_slice_ycheck_all_z_centered_SRG = np.zeros((nx, len(t_check_list_SRN)))
+    v_slice_ycheck_all_z_centered_SRN = np.zeros((nx, len(t_check_list_SRN)))
+    eta_slice_ycheck_all_z_centered_SRN = np.zeros((nx, len(t_check_list_SRN)))
+    v_fitted_slice_ycheck_all_z_centered_SRN = np.zeros((nx, len(t_check_list_SRN)))
+    eta_fitted_slice_ycheck_all_z_centered_SRN = np.zeros((nx, len(t_check_list_SRN)))
+
+    for t_check in t_check_list_SRN:
+
+        idx_sample = int(t_check / (dt * nsave))
+        v_slice_FOM = traj_FOM_v[:, :, :, idx_sample]
+        eta_slice_FOM = traj_FOM_eta[:, :, :, idx_sample]
+        v_fitted_slice_FOM = traj_fitted_FOM_v[:, :, :, idx_sample]
+        eta_fitted_slice_FOM = traj_fitted_FOM_eta[:, :, :, idx_sample]
+        v_slice_SRG = traj_SRG_v[:, :, :, idx_sample]
+        eta_slice_SRG = traj_SRG_eta[:, :, :, idx_sample]
+        v_fitted_slice_SRG = traj_fitted_SRG_v[:, :, :, idx_sample]
+        eta_fitted_slice_SRG = traj_fitted_SRG_eta[:, :, :, idx_sample]
+        v_slice_SRN = traj_SRN_v[:, :, :, idx_sample]
+        eta_slice_SRN = traj_SRN_eta[:, :, :, idx_sample]
+        v_fitted_slice_SRN = traj_fitted_SRN_v[:, :, :, idx_sample]
+        eta_fitted_slice_SRN = traj_fitted_SRN_eta[:, :, :, idx_sample]
+        
+        idx_y_check = np.argmin(np.abs(y - y_check))
+        v_slice_FOM_ycheck = v_slice_FOM[:, idx_y_check, :]
+        v_fitted_slice_FOM_ycheck = v_fitted_slice_FOM[:, idx_y_check, :]
+        eta_slice_FOM_ycheck = eta_slice_FOM[:, idx_y_check, :]
+        eta_fitted_slice_FOM_ycheck = eta_fitted_slice_FOM[:, idx_y_check, :]
+        v_slice_SRG_ycheck = v_slice_SRG[:, idx_y_check, :]
+        v_fitted_slice_SRG_ycheck = v_fitted_slice_SRG[:, idx_y_check, :]
+        eta_slice_SRG_ycheck = eta_slice_SRG[:, idx_y_check, :]
+        eta_fitted_slice_SRG_ycheck = eta_fitted_slice_SRG[:, idx_y_check, :]
+        v_slice_SRN_ycheck = v_slice_SRN[:, idx_y_check, :]
+        v_fitted_slice_SRN_ycheck = v_fitted_slice_SRN[:, idx_y_check, :]
+        eta_slice_SRN_ycheck = eta_slice_SRN[:, idx_y_check, :]
+        eta_fitted_slice_SRN_ycheck = eta_fitted_slice_SRN[:, idx_y_check, :]
+        
+        v_fitted_slice_ycheck_all_z_centered_FOM[:, t_check_list_SRN.index(t_check)] = v_fitted_slice_FOM_ycheck[:, nz//2]
+        eta_fitted_slice_ycheck_all_z_centered_FOM[:, t_check_list_SRN.index(t_check)] = eta_fitted_slice_FOM_ycheck[:, nz//2]
+        v_slice_ycheck_all_z_centered_FOM[:, t_check_list_SRN.index(t_check)] = v_slice_FOM_ycheck[:, nz//2]
+        eta_slice_ycheck_all_z_centered_FOM[:, t_check_list_SRN.index(t_check)] = eta_slice_FOM_ycheck[:, nz//2]
+        v_fitted_slice_ycheck_all_z_centered_SRG[:, t_check_list_SRN.index(t_check)] = v_fitted_slice_SRG_ycheck[:, nz//2]
+        eta_fitted_slice_ycheck_all_z_centered_SRG[:, t_check_list_SRN.index(t_check)] = eta_fitted_slice_SRG_ycheck[:, nz//2]
+        v_slice_ycheck_all_z_centered_SRG[:, t_check_list_SRN.index(t_check)] = v_slice_SRG_ycheck[:, nz//2]
+        eta_slice_ycheck_all_z_centered_SRG[:, t_check_list_SRN.index(t_check)] = eta_slice_SRG_ycheck[:, nz//2]
+        v_fitted_slice_ycheck_all_z_centered_SRN[:, t_check_list_SRN.index(t_check)] = v_fitted_slice_SRN_ycheck[:, nz//2]
+        eta_fitted_slice_ycheck_all_z_centered_SRN[:, t_check_list_SRN.index(t_check)] = eta_fitted_slice_SRN_ycheck[:, nz//2]
+        v_slice_ycheck_all_z_centered_SRN[:, t_check_list_SRN.index(t_check)] = v_slice_SRN_ycheck[:, nz//2]
+        eta_slice_ycheck_all_z_centered_SRN[:, t_check_list_SRN.index(t_check)] = eta_slice_SRN_ycheck[:, nz//2]
+        
+        v_min = np.min(v_slice_FOM_ycheck)
+        v_max = np.max(v_slice_FOM_ycheck)
+        v_spacing = np.abs(v_max - v_min) / 20  # 等高线间距
+        
+        eta_min = np.min(eta_slice_FOM_ycheck)
+        eta_max = np.max(eta_slice_FOM_ycheck)
+        eta_spacing = np.abs(eta_max - eta_min) / 20  # 等高线间距
+
+        # 构造等高线 levels
+        levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
+        
+        plt.figure(figsize=(10, 6))
+        plt.contour(x, z, v_slice_FOM_ycheck.T, levels=levels, colors='black', linewidths=0.6)
+        plt.contour(x, z, v_slice_SRG_ycheck.T, levels=levels, colors='red', linewidths=0.6, linestyles='dashed')
+        plt.contour(x, z, v_slice_SRN_ycheck.T, levels=levels, colors='blue', linewidths=0.6, linestyles='dotted')
+        plt.xlabel(r"$x$")
+        plt.ylabel(r"$z$")
+        plt.xlim(np.min(x), np.max(x))
+        plt.ylim(np.min(z), np.max(z))
+        plt.title(f"Normal velocity of FOM (black), SR-Galerkin ROM (red), and SR-NiTROM (blue) at t={t_check}, y={y_check}")
+        plt.tight_layout()
+        plt.savefig(fig_path + "v_t_%03d_y_%03d_traj_%03d.png"%(t_check,y_check,traj_idx))
+        plt.close()
+        
+        plt.figure(figsize=(10, 6))
+        plt.contour(x, z, v_fitted_slice_FOM_ycheck.T, levels=levels, colors='black', linewidths=0.6)
+        plt.contour(x, z, v_fitted_slice_SRG_ycheck.T, levels=levels, colors='red', linewidths=0.6, linestyles='dashed')
+        plt.contour(x, z, v_fitted_slice_SRN_ycheck.T, levels=levels, colors='blue', linewidths=0.6, linestyles='dotted')
+        plt.xlabel(r"$x$")
+        plt.ylabel(r"$z$")
+        plt.xlim(np.min(x), np.max(x))
+        plt.ylim(np.min(z), np.max(z))
+        plt.title(f"Fitted normal velocity of FOM (black), SR-Galerkin ROM (red), and SR-NiTROM (blue) at t={t_check}, y={y_check}")
+        plt.tight_layout()
+        plt.savefig(fig_path + "fitted_v_t_%03d_y_%03d_traj_%03d.png"%(t_check,y_check,traj_idx))
+        plt.close()
+        
+        plt.figure(figsize=(10, 6))
+        plt.plot(x, eta_slice_ycheck_all_z_centered_FOM[:, t_check_list_SRN.index(t_check)], 'k-', label=f"FOM t={t_check}")
+        plt.plot(x, eta_slice_ycheck_all_z_centered_SRG[:, t_check_list_SRN.index(t_check)], 'r--', label=f"SR-Galerkin ROM t={t_check}")
+        plt.plot(x, eta_slice_ycheck_all_z_centered_SRN[:, t_check_list_SRN.index(t_check)], 'b--', label=f"SR-NiTROM t={t_check}")
+        plt.xlabel(r"$x$")
+        plt.ylabel(f"Normal vorticity at (y,z)=({y_check}, {z[nz//2]})")
+        plt.title(f"Normal vorticity at (y={y_check}, z={z[nz//2]}) at t={t_check}")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(fig_path + "eta_t_%03d_y_%03d_z_%03d_traj_%03d.png"%(t_check,y_check,z[nz//2],traj_idx))
+        plt.close()
+        
+        plt.figure(figsize=(10, 6))
+        plt.plot(x, eta_fitted_slice_ycheck_all_z_centered_FOM[:, t_check_list_SRN.index(t_check)], 'k-', label=f"FOM t={t_check}")
+        plt.plot(x, eta_fitted_slice_ycheck_all_z_centered_SRG[:, t_check_list_SRN.index(t_check)], 'r--', label=f"SR-Galerkin ROM t={t_check}")
+        plt.plot(x, eta_fitted_slice_ycheck_all_z_centered_SRN[:, t_check_list_SRN.index(t_check)], 'b--', label=f"SR-NiTROM t={t_check}")
+        plt.xlabel(r"$x$")
+        plt.ylabel(f"Fitted normal vorticity at (y,z)=({y_check}, {z[nz//2]})")
+        plt.title(f"Fitted normal vorticity at (y,z)=({y_check}, {z[nz//2]}) at t={t_check}")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(fig_path + "fitted_eta_t_%03d_y_%03d_z_%03d_traj_%03d.png"%(t_check,y_check,z[nz//2],traj_idx))
+        plt.close()

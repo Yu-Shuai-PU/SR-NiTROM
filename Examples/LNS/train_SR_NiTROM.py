@@ -367,11 +367,17 @@ for k in range(params.k0, params.k0 + params.kouter):
     Phi_NiTROM = point[0]
     Psi_NiTROM = point[1]
 
-    # ## Compute the difference between Phi and Psi using the method of principle angles
+    ## Compute the difference between Phi and Psi using the method of principle angles
 
-    # Q_Phi = np.linalg.qr(Phi_NiTROM)[0]
-    # Q_Psi = np.linalg.qr(Psi_NiTROM)[0]
-    # cos_thetas = np.linalg.svd(Q_Phi.T@Q_Psi, compute_uv=False)
+    Q_Phi = np.linalg.qr(Phi_NiTROM)[0]
+    Q_Psi = np.linalg.qr(Psi_NiTROM)[0]
+    cos_thetas = np.linalg.svd(Q_Phi.T @ Q_Psi, compute_uv=False)
+
+    # --- 修改部分 ---
+    # 直接打印最小值，保留16位小数
+    print(f"Minimum cos theta: {np.min(cos_thetas):.16f}")
+    print(f"Primary angle between subspaces (degrees): {np.arccos(np.clip(np.min(cos_thetas), -1.0, 1.0)) * 180 / np.pi:.4e}")
+    # ----------------
     # print([f"{x:.16f}" for x in cos_thetas])
     print(f"relative difference between Phi_NiTROM and Psi_NiTROM: {np.linalg.norm(Phi_NiTROM - Psi_NiTROM) / np.linalg.norm(Phi_NiTROM):.4e}")
 
@@ -399,7 +405,7 @@ opt_obj = classes.optimization_objects(*opt_obj_inputs,**opt_obj_kwargs)
 opt_obj.recalibrate_weights(weight_traj, weight_shifting_amount, weight_shifting_speed)
 cost, grad, hess = nitrom_functions.create_objective_and_gradient(M,opt_obj,pool,fom)
 problem = pymanopt.Problem(M,cost,euclidean_gradient=grad)
-# check_gradient(problem,x=point)
+check_gradient(problem,x=point)
 
 Phi_NiTROM_w, Psi_NiTROM_w = point[0:2]
 Phi_NiTROM = fom.apply_inv_sqrt_inner_product_weight(Phi_NiTROM_w)
@@ -497,18 +503,18 @@ for k in range(pool.my_n_traj):
                     params.num_modes_to_plot, params.nx, params.ny, params.nz, params.dt, params.nsave,
                     params.x, params.y, params.z, params.t_check_list_SRN, params.y_check)
 
-# ### plot the training error
+# plot the training error
 
-# plt.figure(figsize=(8,6))
-# # plt.semilogy(costvec_NiTROM,'-o',color=cOPT,label='SR-NiTROM')
-# plt.semilogy(costvec_NiTROM,'-o',color='blue',label='SR-NiTROM')
-# plt.xlabel('Iteration')
-# plt.ylabel('Cost function')
-# plt.title('Training error')
-# plt.legend()
-# plt.tight_layout()
-# plt.savefig(fig_path + f"training_error_NiTROM_start_time_{snapshot_start_time_NiTROM_training}_end_time_{snapshot_end_time_NiTROM_training}.png")
-# plt.close()
+plt.figure(figsize=(8,6))
+# plt.semilogy(costvec_NiTROM,'-o',color=cOPT,label='SR-NiTROM')
+plt.semilogy(costvec_NiTROM,'-o',color='blue',label='SR-NiTROM')
+plt.xlabel('Iteration')
+plt.ylabel('Cost function')
+plt.title('Training error')
+plt.legend()
+plt.tight_layout()
+plt.savefig(params.fig_path_SRN + f"training_error_NiTROM_start_time_{params.snapshot_start_time_idx_NiTROM_training}_end_time_{params.snapshot_end_time_idx_NiTROM_training}.png")
+plt.close()
 
 # ### Save the training information
 # # Combine data and create a header for saving
@@ -522,4 +528,4 @@ for k in range(pool.my_n_traj):
 # np.savetxt(fname_training_info, training_data.reshape(1, -1), delimiter=',', header=header_str, comments='')
 # print(f"Saved training information to {fname_training_info}")
 
-# # endregion
+# endregion

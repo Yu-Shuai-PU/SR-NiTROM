@@ -46,9 +46,10 @@ class SimConfigs:
     NiTROM_coeff_version: str = "new" # "old" or "new" for loading the NiTROM coefficients before or after the latest training
     training_objects: str = "tensors_and_bases" # "tensors_and_bases" or "tensors" or "no_alternating"
     # training_objects: str = "no_alternating" # "tensors_and_bases" or "tensors" or "no_alternating"
-    manifold: str = "Stiefel" # "Grassmann" or "Stiefel" for Psi manifold choice
+    # manifold: str = "Stiefel" # "Grassmann" or "Stiefel" for Psi manifold choice
+    manifold: str = "Grassmann" # "Grassmann" or "Stiefel" for Psi manifold choice
     timespan_percentage_POD: float = 1.00 # percentage of the entire timespan used for POD (always use all snapshots for POD)
-    timespan_percentage_NiTROM_training: float = 0.1 # percentage of the entire timespan used for NiTROM training
+    timespan_percentage_NiTROM_training: float = 0.2 # percentage of the entire timespan used for NiTROM training
     
 
     # Parameters for relative weights between different terms in the cost function
@@ -68,12 +69,12 @@ class SimConfigs:
     # Parameters for training
     
     k0: int = 0
-    kouter: int = 5
+    kouter: int = 50
     kinner_basis: int = 10
     kinner_tensor: int = 5
     
     initial_step_size_basis: float = 1e-2
-    initial_step_size_tensor: float = 1e-5
+    initial_step_size_tensor: float = 1e-4
     initial_step_size: float = 1e-3
     
     step_size_decrease_rate: float = 0.9

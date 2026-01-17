@@ -78,56 +78,86 @@ def main():
     
     tstep_kse_fom = fom_class_LNS.time_step_LNS(fom, params.time)
     
+    # endregion
+    
     # region 2: Generate initial disturbances that are centered around the least-stable 2D Tollmien-Schlichting (TS) wave at given Re
-
-    # The initial disturbance looks like a wavepacket smoothed by Gaussian envelopes in both streamwise and spanwise directions
-    # v(x, y, z) = Real( amp * vhat_TS(y) * exp(1j * alpha_TS * (x - Lx/2)) * exp(-((x - Lx/2)/sigma_x)^2) * exp(-((z - Lz/2)/sigma_z)^2) )
-    # which accounts for amplitude, TS normal profile, streamwise carrier wave, and Gaussian envelopes in both x and z directions
-
-    # Next, we figure out the u profile from continuity equation
-    # du/dx + dv/dy + dw/dz = 0, considering w approximately zero for the initial disturbance centered around 2D TS wave
-    # du/dx = -dv/dy
-    # from here we have u(x, y, z)
-
-    # Eventually, we compute the initial normal vorticity
-    # eta(x, y, z) = du/dz - dw/dx approximately du/dz
+    # To enrich the training dataset, here we introduce rotation to rotate our benchmark initial condition to create more variations
+    
+    # Define the rotating coordinates
+    # x' = cos(theta) * x + sin(theta) * z
+    # z' = -sin(theta) * x + cos(theta) * z
+    # Thus, we can first write down the expression of normal velocity
+    # v(x, y, z) = Real(vhat_TS(y) * exp(1j * alpha_TS * x') * exp(-(x'/sigma_x)^2) * exp(-(z'/sigma_z)^2))
+    # Then, based on the continuity equation, we can formulate u and w as follows:
+    
+    # u = -cos(theta) * dpsi/dy
+    # v = dpsi/dx' = cos(theta) * dpsi/dx + sin(theta) * dpsi/dz
+    # w = -sin(theta) * dpsi/dy
+    
+    # Finally, we obtain the normal vorticity
+    # eta(x, y, z) = du/dz - dw/dx = d(-cos(theta) * dpsi/dy)/dz - d(-sin(theta) * dpsi/dy)/dx = sin(theta) * d^2 psi/dxdy - cos(theta) * d^2 psi/dydz
+    
+    # the process then goes as follows:
+    # 1. figure out the optimal wavenumber and the normal velocity profile of the least-stable 2D TS wave at given wavenumber and Reynolds number (kx_TS, vhat_TS(y))
+    # 2. formulate the initial normal velocity field v(x, y, z) based on the above expression
+    # 3. solve the streamfunction field psi(x, y, z) from the normal velocity field v(x, y, z)
+    # 4. figure out the initial u and w field from the continuity equation
+    # 5. figure out the initial normal vorticity field eta(x, y, z) from u and w fields
     
     kx_TS, vhat_TS, maximal_growth_rate = generate_IC_around_2D_TS(params, fom)
     
     print("Least-stable 2D TS wave at Re = %d has streamwise wavenumber kx = %.4f, maximal growth rate = %.6f" % (params.Re, kx_TS, maximal_growth_rate))
     
-    plt.figure()
-    plt.plot(params.y, np.real(vhat_TS), label='Real part')
-    plt.plot(params.y, np.imag(vhat_TS), label='Imaginary part')
-    plt.title('Normal velocity profile of least-stable 2D TS wave at Re = %d' % params.Re)
-    plt.xlabel('y')
-    plt.ylabel('v_hat(y)')
-    plt.legend()
-    plt.grid()
-    plt.show()
+    # plt.figure()
+    # plt.plot(params.y, np.real(vhat_TS), label='Real part')
+    # plt.plot(params.y, np.imag(vhat_TS), label='Imaginary part')
+    # plt.title('Normal velocity profile of least-stable 2D TS wave at Re = %d' % params.Re)
+    # plt.xlabel('y')
+    # plt.ylabel('v_hat(y)')
+    # plt.legend()
+    # plt.grid()
+    # plt.show()
     
     X, Y, Z = params.X, params.Y, params.Z
-    v0 = (vhat_TS[np.newaxis, :, np.newaxis] * np.exp(1j * kx_TS * (X - params.Lx / 2)) * np.exp(-((X - params.Lx / 2) / 32) ** 2) * np.exp(-((Z - params.Lz / 2) / 8) ** 2)).real
-    # v0 = (vhat_TS[np.newaxis, :, np.newaxis] * np.exp(1j * kx_TS * (X - params.Lx / 2))).real
-    dv0_dy = fom.diff_1_y(v0)
-    dv0_dy_hat = fom.FFT_1D(dv0_dy, axis=0)
-    u0_hat = np.zeros_like(dv0_dy_hat)
+    angle = np.deg2rad(90)  # rotation angle in radians to introduce spanwise variation
+    Xprime = np.cos(angle) * X + np.sin(angle) * Z
+    Zprime = -np.sin(angle) * X + np.cos(angle) * Z
+    v0 = (vhat_TS[np.newaxis, :, np.newaxis] * np.exp(1j * kx_TS * Xprime) * np.exp(-(Xprime)**2 - (Zprime/8)**2)).real
+    
+    # after we figure out v0(x, y, z), we then compute psi0
+    # v = cos(theta) * dpsi/dx + sin(theta) * dpsi/dz
+    # that means v_breve(kx, y, kz) = 1j * (kx * cos(theta) + kz * sin(theta)) * psi_breve(kx, y, kz)
+    # or psi_breve(kx, y, kz) = -1j * v_breve(kx, y, kz) / (kx * cos(theta) + kz * sin(theta))
+    v0_breve = fom.FFT_2D(v0)
+    psi0_breve = np.zeros_like(v0_breve, dtype=complex)
     for idx_x in range(params.nx):
         kx = fom.kx[idx_x]
-        if kx != 0:
-            u0_hat[idx_x, :, :] = 1j * dv0_dy_hat[idx_x, :, :] / kx
-        else:
-            u0_hat[idx_x, :, :] = 0.0
-    u0 = fom.IFFT_1D(u0_hat, axis=0)
-    eta0 = fom.diff_z(u0, order = 1)
+        for idx_z in range(params.nz):
+            kz = fom.kz[idx_z]
+            denom = kx * np.cos(angle) + kz * np.sin(angle)
+            print("Processing kx = %.4f, kz = %.4f, denom = %.4f" % (kx, kz, denom))
+            if np.abs(denom) > 1e-6:
+                psi0_breve[idx_x, :, idx_z] = -1j * v0_breve[idx_x, :, idx_z] / denom
+            else:
+                psi0_breve[idx_x, :, idx_z] = 0.0
+                
+    # after we figure out psi0, we then compute u0 and w0 from continuity equation
+    # u = -cos(theta) * dpsi/dy
+    # w = -sin(theta) * dpsi/dy
+    psi0 = fom.IFFT_2D(psi0_breve)
+    u0 = - np.cos(angle) * fom.diff_1_y(psi0)
+    w0 = - np.sin(angle) * fom.diff_1_y(psi0)
+    v0 = np.cos(angle) * fom.diff_x(psi0, order = 1) + np.sin(angle) * fom.diff_z(psi0, order = 1)
+    
+    # finally, we compute eta0
+    eta0 = fom.diff_z(u0, order = 1) - fom.diff_x(w0, order = 1)
+    initial_disturbance_energy = fom.inner_product_3D(v0, eta0, v0, eta0)
+    print("Initial disturbance energy before normalization: %.6e" % initial_disturbance_energy)
     
     # compute the initial disturbance energy for normalization
-    initial_disturbance_energy = fom.inner_product_3D(v0, eta0, v0, eta0)
     
     v0 = v0[:, :, :, np.newaxis] / np.sqrt(initial_disturbance_energy)  # shape (nx, ny, nz, n_traj)
     eta0 = eta0[:, :, :, np.newaxis] / np.sqrt(initial_disturbance_energy)  # shape (nx, ny, nz, n_traj)
-    
-    print("Initial disturbance kinetic energy normalized to 1: ", fom.inner_product_3D(v0[:, :, :, 0], eta0[:, :, :, 0], v0[:, :, :, 0], eta0[:, :, :, 0]))
     
     traj_template = np.load(params.fname_traj_template)
     traj_template_dx = np.load(params.fname_traj_template_dx)
@@ -179,6 +209,61 @@ def main():
         plt.ylabel("Disturbance Kinetic Energy")
         plt.title("Disturbance Kinetic Energy over time")
         plt.tight_layout()
+        plt.show()
+        
+        traj_PSD = fom.compute_PSD(traj) ### Compute the Power Spectral Density (PSD) of the trajectory for various wavenumbers (kx, kz), which will be a pcolormesh plot later of (kx, kz, PSD(kx, kz, N_snapshots))
+
+        kx = fom.kx
+        kz = fom.kz
+        KX, KZ = np.meshgrid(kx, kz, indexing='ij')
+        fig, ax = plt.subplots(figsize=(10, 10))
+
+        # --- 1. 定义截断框 (保持不变, ratio = 2 是不进行截断) ---
+        ratio = 2
+        kxc = (params.nx // ratio) * (2*np.pi/fom.Lx)
+        kzc = (params.nz // ratio) * (2*np.pi/fom.Lz)
+        # 将这些坐标打包，准备传给 update 函数
+        box_coords = ([-kxc, kxc, kxc, -kxc, -kxc], [-kzc, -kzc, kzc, kzc, -kzc])
+
+        levels = [1e-16, 1e-14, 1e-12, 1e-10, 1e-6, 1e-4, 1e-2, 0.1, 0.5]
+
+        # --- 2. 修改 update 函数以接收参数 ---
+        def update(frame, rect_x, rect_z): # 添加了参数接收
+            ax.clear()
+            
+            psd = traj_PSD[:, :, frame]
+            # 归一化：除以当前时刻总能量，关注“形状”
+            total_E = np.sum(psd)
+            if total_E > 0:
+                psd_norm = psd / total_E
+            else:
+                psd_norm = psd
+                
+            # 绘图
+            CS = ax.contour(KX, KZ, psd_norm, levels=levels, colors='k', linewidths=0.5)
+            ax.clabel(CS, inline=1, fontsize=8, fmt='%1.0e')
+            ax.contourf(KX, KZ, psd_norm, levels=levels, cmap='inferno_r', alpha=0.5)
+            
+            # 画出截断框 (使用传入的参数，并增加 zorder)
+            ax.plot(rect_x, rect_z, 'r--', linewidth=2, label='Mesh Limit', zorder=10)
+            
+            # --- 重要：在 clear 后重新添加图例 ---
+            ax.legend(loc='upper right')
+            
+            ax.set_title(f"Time: {tsave[frame]:.2f} | Total Energy: {total_E:.2e}")
+            ax.set_xlabel('kx')
+            ax.set_ylabel('kz')
+            # 固定坐标轴范围，防止抖动
+            ax.set_xlim(kx.min(), kx.max())
+            ax.set_ylim(kz.min(), kz.max())
+
+        # --- 3. 在 FuncAnimation 中使用 fargs 传递参数 ---
+        # 注意 fargs 需要是一个元组
+        anim = FuncAnimation(fig, update, frames=traj_PSD.shape[2], interval=100,
+                            fargs=box_coords) # 将 box_coords 解包传给 rect_x, rect_z
+
+        # 保存为 gif
+        anim.save('psd_evolution.gif', writer='pillow', fps=10)
         plt.show()
             
         np.save(params.fname_time, tsave)
@@ -345,6 +430,8 @@ def main():
         plt.legend()
         plt.tight_layout()
         plt.show()
+        
+    # endregion
     
 if __name__ == "__main__":
     main()

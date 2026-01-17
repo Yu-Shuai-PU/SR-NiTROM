@@ -1,6 +1,15 @@
 """
 This module generates initial disturbances for simulations.
 
+See Henningson, Lundbladh and Johannsson 1993, "A mechanism for bypass transition
+from localized disturbances in wall-bounded shear flows" for TS-wave/oblique-wave type initial conditions and numerical setups
+
+See Schmid and Henningson 2001, "Stability and Transition in Shear Flows":
+    a) p.147 and p.148 Fig. 4.19 for the time evolution (and downstream drifting) of initial localized disturbance.
+    b) p.144 Fig. 4.16(c)(f) for the shape of initial localized disturbance.
+    c) Fig.1 and eq.1(a-c) and eq.2 from Henningson et al. (1993) for the mathematical form of the initial localized disturbance
+    d) Table 1 from Henningson et al. (1993) for the domain size, grid points number, and other parameters used in the simulation
+
 Typically, we have 3 types of initial disturbances:
 
 1. Disturbances centered around the least-stable 2D Tollmien-Schlichting (TS) wave (mainly exponential decay/growth, no kz = 0 components).

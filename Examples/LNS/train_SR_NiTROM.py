@@ -77,7 +77,7 @@ fom.load_template(traj_template, traj_template_dx)
 # endregion
 
 # region 2: Simulations
-pool_inputs = (MPI.COMM_WORLD, params.n_traj)
+pool_inputs = (MPI.COMM_WORLD, params.n_traj_training)
 pool_kwargs = {'fname_time':params.fname_time,
                'fname_X_template': params.fname_traj_template,
                'fname_X_template_dx':params.fname_traj_template_dx, 'fname_X_template_dx_weighted':params.fname_traj_template_dx_weighted,
@@ -136,8 +136,8 @@ np.savez(fname_Tensors_POD, *Tensors_POD_w)
 
 disturbance_kinetic_energy_FOM = np.zeros((pool.my_n_traj, opt_obj.n_snapshots))
 disturbance_kinetic_energy_SRG = np.zeros((pool.my_n_traj, opt_obj.n_snapshots))
-relative_error_SRG = np.zeros((params.n_traj, opt_obj.n_snapshots))                                             
-relative_error_fitted_SRG = np.zeros((params.n_traj, opt_obj.n_snapshots))
+relative_error_SRG = np.zeros((params.n_traj_training, opt_obj.n_snapshots))                                             
+relative_error_fitted_SRG = np.zeros((params.n_traj_training, opt_obj.n_snapshots))
 sol_SRG = np.zeros((pool.my_n_traj, params.r + 1, opt_obj.n_snapshots)) 
 traj_SRG = np.zeros_like(opt_obj.X) # (my_n_traj, n_states, n_snapshots)
 traj_fitted_SRG = np.zeros_like(opt_obj.X_fitted) # (my_n_traj, n_states, n_snapshots)

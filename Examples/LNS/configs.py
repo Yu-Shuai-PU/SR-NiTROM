@@ -35,6 +35,7 @@ class SimConfigs:
     data_path: str = "./data/"
     fig_path_SRG: str = "./figures/SRG/"
     fig_path_SRN: str = "./figures/SRN/"
+    fig_path_FOM: str = "./figures/FOM/"
     
     # Training methods
     
@@ -43,7 +44,7 @@ class SimConfigs:
     rotation_angle_bound: int = 90 # maximum rotation angle for generating initial disturbances
     range_traj_template_generation: range = range(n_traj_training) # indices of trajectories used for generating template
     n_traj_testing : int = 5 # number of trajectories used for testing
-    r : int = 12 # dimension of the ROM
+    r : int = 40 # dimension of the ROM
     poly_comp: List[int] = field(default_factory=lambda: [1])
     initialization: str = "POD-Galerkin" # "POD-Galerkin" or "Previous NiTROM"
     # initialization: str = "Previous NiTROM" # "POD-Galerkin" or "Previous NiTROM"

@@ -51,9 +51,9 @@ class mpi_pool:
         self.time = np.load(self.kwargs.get('fname_time', None))
         self.load_template(self.kwargs)
         self.load_trajectories(self.kwargs)
-        self.load_time_derivatives(self.kwargs)
+        # self.load_time_derivatives(self.kwargs)
         self.load_shift(self.kwargs)
-        self.load_weights(self.kwargs)
+        # self.load_weights(self.kwargs)
         self.load_steady_forcing(self.kwargs)
 
     def load_trajectories(self,kwargs):
@@ -86,6 +86,12 @@ class mpi_pool:
 
             for k in range (self.my_n_traj): self.X_fitted[k,] = X_fitted[k]
             
+            X_fitted_init = [np.load(self.fnames_traj_fitted[k], mmap_mode='r')[:, 0] for k in range (self.my_n_traj)]
+            
+            self.X_fitted_init = np.zeros((self.my_n_traj,self.N))
+
+            for k in range (self.my_n_traj): self.X_fitted_init[k,] = X_fitted_init[k]
+            
         fname_traj_fitted_weighted = kwargs.get('fname_traj_fitted_weighted',None)
         if fname_traj_fitted_weighted != None:
             self.fnames_traj_fitted_weighted = [fname_traj_fitted_weighted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
@@ -94,6 +100,15 @@ class mpi_pool:
             self.X_fitted_weighted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
 
             for k in range (self.my_n_traj): self.X_fitted_weighted[k,] = X_fitted_weighted[k]
+            
+        fname_traj_fitted_weighted = kwargs.get('fname_traj_fitted_weighted',None)
+        if fname_traj_fitted_weighted != None:
+            self.fnames_traj_fitted_weighted = [fname_traj_fitted_weighted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
+            X_fitted_weighted_init = [np.load(self.fnames_traj_fitted_weighted[k], mmap_mode='r')[:, 0] for k in range (self.my_n_traj)]
+            
+            self.X_fitted_weighted_init = np.zeros((self.my_n_traj,self.N))
+
+            for k in range (self.my_n_traj): self.X_fitted_weighted_init[k,] = X_fitted_weighted_init[k]
         
     def load_weights(self,kwargs):
 
@@ -237,7 +252,9 @@ class optimization_objects:
         self.X = mpi_pool.X[which_trajs,:,:]
         self.X_weighted = mpi_pool.X_weighted[which_trajs,:,:]
         self.X_fitted = mpi_pool.X_fitted[which_trajs,:,:]
+        self.X_fitted_init = mpi_pool.X_fitted_init[which_trajs,:]
         self.X_fitted_weighted = mpi_pool.X_fitted_weighted[which_trajs,:,:]
+        self.X_fitted_weighted_init = mpi_pool.X_fitted_weighted_init[which_trajs,:]
         self.F = mpi_pool.F[:,which_trajs]
         self.F_weighted = mpi_pool.F_weighted[:,which_trajs]
         self.c = mpi_pool.c[which_trajs,:]

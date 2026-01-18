@@ -51,7 +51,7 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
 
             # Integrate the reduced-order model from time t = 0 to the final time 
             # specified by the last snapshot in the training trajectory
-            z0 = Psi.T@(opt_obj.X_fitted_weighted[k,:,0].reshape(-1))
+            z0 = Psi.T@(opt_obj.X_fitted_weighted_init[k,:].reshape(-1))
             u = Psi.T@(opt_obj.F_weighted[:,k].reshape(-1))
             c0 = opt_obj.c[k,0]
             sol = solve_ivp(opt_obj.evaluate_rom_rhs,
@@ -148,7 +148,7 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
 
             # Integrate the reduced-order model from time t = 0 to the final time 
             # specified by the last snapshot in the training trajectory
-            z0 = Psi.T@(opt_obj.X_fitted_weighted[k,:,0].reshape(-1))
+            z0 = Psi.T@(opt_obj.X_fitted_weighted_init[k,:].reshape(-1))
             c0 = opt_obj.c[k,0]
             u = Psi.T@(opt_obj.F_weighted[:,k].reshape(-1))
             
@@ -300,7 +300,7 @@ def create_objective_and_gradient(manifold,opt_obj,mpi_pool,fom):
             grad_Phi -= 2 * weight_cdot_0 * e_cdot_0 * cdot_0 * u0dxx_z_0_outer_0 / cdot_denom_0
             grad_Psi += 2 * weight_X_0 * np.einsum('i,j',PhiF@z_0, PhiF.T@e_X_fitted_weighted_0)
             grad_Psi += 2 * weight_cdot_0 * e_cdot_0 * cdot_0 * PhiF @ (u0dxx_z_0_outer_0.T @ PhiF) / cdot_denom_0
-            grad_Psi -= np.einsum('i,j', opt_obj.X_fitted_weighted[k,:,0], xi0_j)
+            grad_Psi -= np.einsum('i,j', opt_obj.X_fitted_weighted_init[k,:], xi0_j)
             
             # Project gradients onto the tangent space            
             grad_Phi = (grad_Phi - Psi @ (PhiF.T @ grad_Phi)) @ F.T

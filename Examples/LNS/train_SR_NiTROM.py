@@ -148,7 +148,7 @@ traj_fitted_FOM_proj_POD = np.zeros((pool.my_n_traj, params.r, opt_obj.n_snapsho
 for k in range(pool.my_n_traj):
     traj_idx = k + pool.disps[pool.rank]
     print("Preparing SR-Galerkin simulation %d/%d"%(traj_idx,pool.n_traj))
-    traj_SRG_init = Psi_POD_w.T@fom.apply_sqrt_inner_product_weight(opt_obj.X_fitted[k,:,0].reshape(-1))
+    traj_SRG_init = Psi_POD_w.T@opt_obj.X_fitted_weighted_init[k,:]
     shifting_amount_SRG_init = opt_obj.c[k,0]
 
     sol_SRG[k,:,:] = solve_ivp(opt_obj.evaluate_rom_rhs,
@@ -186,20 +186,16 @@ for k in range(pool.my_n_traj):
                                                  diff_SRG_FOM[params.nx * params.ny * params.nz : ].reshape((params.nx, params.ny, params.nz)),
                                                  diff_SRG_FOM[0 : params.nx * params.ny * params.nz].reshape((params.nx, params.ny, params.nz)),
                                                  diff_SRG_FOM[params.nx * params.ny * params.nz : ].reshape((params.nx, params.ny, params.nz))) / disturbance_kinetic_energy_FOM[k,j]
-        
-    traj_FOM = opt_obj.X[k,:,:]
-    shifting_amount_FOM = opt_obj.c[k,:]
-    shifting_speed_FOM = opt_obj.cdot[k,:]
-    traj_fitted_FOM = opt_obj.X_fitted[k,:,:]
-    traj_fitted_FOM_proj_POD[k,:,:] = Psi_POD_w.T @ fom.apply_sqrt_inner_product_weight(traj_fitted_FOM)
+     
+    traj_fitted_FOM_proj_POD[k,:,:] = Psi_POD_w.T @ opt_obj.X_fitted_weighted[k,:,:]
     
     plot_SRG_vs_FOM(opt_obj, traj_idx, params.fig_path_SRG, relative_error_SRG[traj_idx,:], relative_error_fitted_SRG[traj_idx,:],
                     disturbance_kinetic_energy_FOM[k,:], disturbance_kinetic_energy_SRG[k,:],
-                    shifting_amount_FOM, shifting_amount_SRG[k,:],
-                    shifting_speed_FOM, shifting_speed_SRG[k,:],
+                    opt_obj.c[k,:], shifting_amount_SRG[k,:],
+                    opt_obj.cdot[k,:], shifting_speed_SRG[k,:],
                     traj_fitted_FOM_proj_POD[k,:,:], sol_SRG[k,:-1,:],
-                    traj_FOM, traj_SRG[k,:,:], 
-                    traj_fitted_FOM, traj_fitted_SRG[k,:,:],
+                    opt_obj.X[k,:,:], traj_SRG[k,:,:], 
+                    opt_obj.X_fitted[k,:,:], traj_fitted_SRG[k,:,:],
                     params.num_modes_to_plot, params.nx, params.ny, params.nz, params.dt, params.nsave,
                     params.x, params.y, params.z, params.t_check_list_POD, params.y_check)
     
@@ -446,7 +442,7 @@ traj_fitted_FOM_proj_NiTROM = np.zeros((pool.my_n_traj, params.r, opt_obj.n_snap
 for k in range(pool.my_n_traj):
     traj_idx = k + pool.disps[pool.rank]
     print("Preparing SR-NiTROM simulation %d/%d"%(traj_idx,pool.n_traj))
-    traj_SRN_init = Psi_NiTROM_w.T@fom.apply_sqrt_inner_product_weight(opt_obj.X_fitted[k,:,0].reshape(-1))
+    traj_SRN_init = Psi_NiTROM_w.T@opt_obj.X_fitted_weighted_init[k,:]
     shifting_amount_SRN_init = opt_obj.c[k,0]
 
     sol_SRN[k,:,:] = solve_ivp(opt_obj.evaluate_rom_rhs,
@@ -485,21 +481,17 @@ for k in range(pool.my_n_traj):
                                                  diff_SRN_FOM[0 : params.nx * params.ny * params.nz].reshape((params.nx, params.ny, params.nz)),
                                                  diff_SRN_FOM[params.nx * params.ny * params.nz : ].reshape((params.nx, params.ny, params.nz))) / disturbance_kinetic_energy_FOM[k, j]
         
-    traj_FOM = opt_obj.X[k,:,:]
-    shifting_amount_FOM = opt_obj.c[k,:]
-    shifting_speed_FOM = opt_obj.cdot[k,:]
-    traj_fitted_FOM = opt_obj.X_fitted[k,:,:]
-    traj_fitted_FOM_proj_NiTROM[k,:,:] = Psi_NiTROM_w.T @ fom.apply_sqrt_inner_product_weight(traj_fitted_FOM)
+    traj_fitted_FOM_proj_NiTROM[k,:,:] = Psi_NiTROM_w.T @ opt_obj.X_fitted_weighted[k,:,:]
     ### plotting
     plot_SRN_vs_FOM(opt_obj, traj_idx, params.fig_path_SRN,
                     relative_error_SRG[traj_idx,:], relative_error_SRN[traj_idx,:],
                     relative_error_fitted_SRG[traj_idx,:], relative_error_fitted_SRN[traj_idx,:],
                     disturbance_kinetic_energy_FOM[k,:], disturbance_kinetic_energy_SRG[k,:], disturbance_kinetic_energy_SRN[k,:],
-                    shifting_amount_FOM, shifting_amount_SRG[k,:], shifting_amount_SRN[k,:],
-                    shifting_speed_FOM, shifting_speed_SRG[k,:], shifting_speed_SRN[k,:],
+                    opt_obj.c[k,:], shifting_amount_SRG[k,:], shifting_amount_SRN[k,:],
+                    opt_obj.cdot[k,:], shifting_speed_SRG[k,:], shifting_speed_SRN[k,:],
                     traj_fitted_FOM_proj_POD[k,:,:], traj_fitted_FOM_proj_NiTROM[k,:,:], sol_SRG[k,:-1,:], sol_SRN[k,:-1,:],
-                    traj_FOM, traj_SRG[k,:,:], traj_SRN[k,:,:],
-                    traj_fitted_FOM, traj_fitted_SRG[k,:,:], traj_fitted_SRN[k,:,:],
+                    opt_obj.X[k,:,:], traj_SRG[k,:,:], traj_SRN[k,:,:],
+                    opt_obj.X_fitted[k,:,:], traj_fitted_SRG[k,:,:], traj_fitted_SRN[k,:,:],
                     params.num_modes_to_plot, params.nx, params.ny, params.nz, params.dt, params.nsave,
                     params.x, params.y, params.z, params.t_check_list_SRN, params.y_check)
 

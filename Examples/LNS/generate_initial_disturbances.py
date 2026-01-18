@@ -109,7 +109,7 @@ def main():
     X, Y, Z = params.X, params.Y, params.Z
     
     for idx_traj_training in range(params.n_traj_training // 2): # 0, 1, ..., 11
-        angle = np.deg2rad(idx_traj_training * (360 / (params.n_traj_training // 2)))  # rotation angle in radians to introduce spanwise variation
+        angle = np.deg2rad(idx_traj_training * (params.rotation_angle_bound / (params.n_traj_training // 2)))  # rotation angle in radians to introduce spanwise variation
         Xprime = np.cos(angle) * X + np.sin(angle) * Z
         Zprime = -np.sin(angle) * X + np.cos(angle) * Z
         v0 = (vhat_TS[np.newaxis, :, np.newaxis] * np.exp(1j * kx_TS * Xprime) * np.exp(-(Xprime)**2 - (Zprime/4)**2)).real
@@ -124,7 +124,7 @@ def main():
             for idx_z in range(params.nz):
                 kz = fom.kz[idx_z]
                 denom = kx * np.cos(angle) + kz * np.sin(angle)
-                print("Processing kx = %.4f, kz = %.4f, denom = %.4f" % (kx, kz, denom))
+                # print("Processing kx = %.4f, kz = %.4f, denom = %.4f" % (kx, kz, denom))
                 if np.abs(denom) > 1e-6:
                     psi0_breve[idx_x, :, idx_z] = -1j * v0_breve[idx_x, :, idx_z] / denom
                 else:
@@ -150,45 +150,45 @@ def main():
         
         np.save(params.fname_traj_init%idx_traj_training, np.concatenate((v0.ravel(), eta0.ravel())))
         
-        idx_ycheck = np.argmin(np.abs(params.y - params.y_check))
+        # idx_ycheck = np.argmin(np.abs(params.y - params.y_check))
         
-        v0_ycheck = v0[:, idx_ycheck, :]
-        eta0_ycheck = eta0[:, idx_ycheck, :]
-        v_min = np.min(v0_ycheck)
-        v_max = np.max(v0_ycheck)
-        # v_spacing = 1e-6  # 等高线间距
+        # v0_ycheck = v0[:, idx_ycheck, :]
+        # eta0_ycheck = eta0[:, idx_ycheck, :]
+        # v_min = np.min(v0_ycheck)
+        # v_max = np.max(v0_ycheck)
+        # # v_spacing = 1e-6  # 等高线间距
         
-        eta_min = np.min(eta0_ycheck)
-        eta_max = np.max(eta0_ycheck)
-        # eta_spacing = 1e-6  # 等高线间距
+        # eta_min = np.min(eta0_ycheck)
+        # eta_max = np.max(eta0_ycheck)
+        # # eta_spacing = 1e-6  # 等高线间距
 
-        # 构造等高线 levels
-        # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
-        plt.figure(figsize=(10,6))
-        # plt.contourf(x, z, v0_ycheck.T, levels=levels, cmap='jet')
-        plt.pcolormesh(params.x, params.z, v0_ycheck.T, cmap='bwr')
-        plt.colorbar()
-        plt.xlabel(r"$x$")
-        plt.ylabel(r"$z$")
-        plt.xlim(np.min(params.x), np.max(params.x))
-        plt.ylim(np.min(params.z), np.max(params.z))
-        plt.title(f"Initial Normal velocity v at y={params.y_check}")
-        plt.tight_layout()
-        plt.show()
-        
-        plt.figure(figsize=(10, 6))
-        # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
-        cs = plt.contour(params.x, params.z, v0_ycheck.T, colors='black', linewidths=0.6)
-        # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
-        # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
+        # # 构造等高线 levels
+        # # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
+        # plt.figure(figsize=(10,6))
+        # # plt.contourf(x, z, v0_ycheck.T, levels=levels, cmap='jet')
+        # plt.pcolormesh(params.x, params.z, v0_ycheck.T, cmap='bwr')
         # plt.colorbar()
-        plt.xlabel(r"$x$")
-        plt.ylabel(r"$z$")
-        plt.xlim(np.min(params.x), np.max(params.x))
-        plt.ylim(np.min(params.z), np.max(params.z))
-        plt.title(f"Contours of initial normal velocity v at y={params.y_check}")
-        plt.tight_layout()
-        plt.show()
+        # plt.xlabel(r"$x$")
+        # plt.ylabel(r"$z$")
+        # plt.xlim(np.min(params.x), np.max(params.x))
+        # plt.ylim(np.min(params.z), np.max(params.z))
+        # plt.title(f"Initial Normal velocity v at y={params.y_check}")
+        # plt.tight_layout()
+        # plt.show()
+        
+        # plt.figure(figsize=(10, 6))
+        # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
+        # cs = plt.contour(params.x, params.z, v0_ycheck.T, colors='black', linewidths=0.6)
+        # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
+        # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
+        # # plt.colorbar()
+        # plt.xlabel(r"$x$")
+        # plt.ylabel(r"$z$")
+        # plt.xlim(np.min(params.x), np.max(params.x))
+        # plt.ylim(np.min(params.z), np.max(params.z))
+        # plt.title(f"Contours of initial normal velocity v at y={params.y_check}")
+        # plt.tight_layout()
+        # plt.show()
         
     # endregion
     
@@ -211,10 +211,10 @@ def main():
     # eta(x, y, z) = du/dz - dw/dx
     
     for idx_traj_training in range(params.n_traj_training // 2): # 0, 1, ..., 11
-        angle = np.deg2rad(idx_traj_training * (360 / (params.n_traj_training // 2)))  # rotation angle in radians to introduce spanwise variation
+        angle = np.deg2rad(idx_traj_training * (params.rotation_angle_bound / (params.n_traj_training // 2)))  # rotation angle in radians to introduce spanwise variation
         Xprime = np.cos(angle) * X + np.sin(angle) * Z
         Zprime = -np.sin(angle) * X + np.cos(angle) * Z
-        psi0 = (1 - Y**2)**2 * (Xprime/2) * Zprime * np.exp(-(Xprime/2)**2 - (Zprime/2)**2)
+        psi0 = (1 - Y**2)**2 * (Xprime/2) * np.exp(-(Xprime/2)**2 - (Zprime/2)**2)
         u0 = np.sin(angle) * fom.diff_1_y(psi0)
         v0 = - np.sin(angle) * fom.diff_x(psi0, order = 1) + np.cos(angle) * fom.diff_z(psi0, order = 1)
         w0 = - np.cos(angle) * fom.diff_1_y(psi0)
@@ -229,45 +229,45 @@ def main():
         
         np.save(params.fname_traj_init%(idx_traj_training + params.n_traj_training // 2), np.concatenate((v0.ravel(), eta0.ravel())))
         
-        idx_ycheck = np.argmin(np.abs(params.y - params.y_check))
+        # idx_ycheck = np.argmin(np.abs(params.y - params.y_check))
         
-        v0_ycheck = v0[:, idx_ycheck, :]
-        eta0_ycheck = eta0[:, idx_ycheck, :]
-        v_min = np.min(v0_ycheck)
-        v_max = np.max(v0_ycheck)
-        # v_spacing = 1e-6  # 等高线间距
+        # v0_ycheck = v0[:, idx_ycheck, :]
+        # eta0_ycheck = eta0[:, idx_ycheck, :]
+        # v_min = np.min(v0_ycheck)
+        # v_max = np.max(v0_ycheck)
+        # # v_spacing = 1e-6  # 等高线间距
         
-        eta_min = np.min(eta0_ycheck)
-        eta_max = np.max(eta0_ycheck)
-        # eta_spacing = 1e-6  # 等高线间距
+        # eta_min = np.min(eta0_ycheck)
+        # eta_max = np.max(eta0_ycheck)
+        # # eta_spacing = 1e-6  # 等高线间距
 
-        # 构造等高线 levels
-        # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
-        plt.figure(figsize=(10,6))
-        # plt.contourf(x, z, v0_ycheck.T, levels=levels, cmap='jet')
-        plt.pcolormesh(params.x, params.z, v0_ycheck.T, cmap='bwr')
-        plt.colorbar()
-        plt.xlabel(r"$x$")
-        plt.ylabel(r"$z$")
-        plt.xlim(np.min(params.x), np.max(params.x))
-        plt.ylim(np.min(params.z), np.max(params.z))
-        plt.title(f"Initial Normal velocity v at y={params.y_check}")
-        plt.tight_layout()
-        plt.show()
-        
-        plt.figure(figsize=(10, 6))
-        # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
-        cs = plt.contour(params.x, params.z, v0_ycheck.T, colors='black', linewidths=0.6)
-        # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
-        # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
+        # # 构造等高线 levels
+        # # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
+        # plt.figure(figsize=(10,6))
+        # # plt.contourf(x, z, v0_ycheck.T, levels=levels, cmap='jet')
+        # plt.pcolormesh(params.x, params.z, v0_ycheck.T, cmap='bwr')
         # plt.colorbar()
-        plt.xlabel(r"$x$")
-        plt.ylabel(r"$z$")
-        plt.xlim(np.min(params.x), np.max(params.x))
-        plt.ylim(np.min(params.z), np.max(params.z))
-        plt.title(f"Contours of initial normal velocity v at y={params.y_check}")
-        plt.tight_layout()
-        plt.show()
+        # plt.xlabel(r"$x$")
+        # plt.ylabel(r"$z$")
+        # plt.xlim(np.min(params.x), np.max(params.x))
+        # plt.ylim(np.min(params.z), np.max(params.z))
+        # plt.title(f"Initial Normal velocity v at y={params.y_check}")
+        # plt.tight_layout()
+        # plt.show()
+        
+        # plt.figure(figsize=(10, 6))
+        # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
+        # cs = plt.contour(params.x, params.z, v0_ycheck.T, colors='black', linewidths=0.6)
+        # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
+        # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
+        # # plt.colorbar()
+        # plt.xlabel(r"$x$")
+        # plt.ylabel(r"$z$")
+        # plt.xlim(np.min(params.x), np.max(params.x))
+        # plt.ylim(np.min(params.z), np.max(params.z))
+        # plt.title(f"Contours of initial normal velocity v at y={params.y_check}")
+        # plt.tight_layout()
+        # plt.show()
         
     # endregion
     

@@ -27,10 +27,10 @@ class SimConfigs:
     T: float = 500
     dt: float = 1
     nsave: int = 1
-    amp: float = 1.0
-    small_amp: float = 0.0001
-    medium_amp: float = 0.0699
-    large_amp: float = 0.1398
+    # amp: float = 1.0
+    # small_amp: float = 0.0001
+    # medium_amp: float = 0.0699
+    # large_amp: float = 0.1398
     traj_path: str = "./trajectories/"
     data_path: str = "./data/"
     fig_path_SRG: str = "./figures/SRG/"
@@ -38,7 +38,11 @@ class SimConfigs:
     
     # Training methods
     
-    n_traj : int = 1 # number of trajectories used for training
+    # n_traj : int = 1 # number of trajectories used for training
+    n_traj_training : int = 10 # number of trajectories used for training. 12 for rotated TS wave-type disturbance (each with rotation angle 0, 30, 60, ..., 330 degrees), 12 for rotated oblique wave-type disturbance
+    rotation_angle_bound: int = 90 # maximum rotation angle for generating initial disturbances
+    range_traj_template_generation: range = range(n_traj_training) # indices of trajectories used for generating template
+    n_traj_testing : int = 5 # number of trajectories used for testing
     r : int = 12 # dimension of the ROM
     poly_comp: List[int] = field(default_factory=lambda: [1])
     initialization: str = "POD-Galerkin" # "POD-Galerkin" or "Previous NiTROM"
@@ -51,7 +55,6 @@ class SimConfigs:
     timespan_percentage_POD: float = 1.00 # percentage of the entire timespan used for POD (always use all snapshots for POD)
     timespan_percentage_NiTROM_training: float = 0.2 # percentage of the entire timespan used for NiTROM training
     
-
     # Parameters for relative weights between different terms in the cost function
     
     weight_decay_rate: float = 1 # if weight_decay_rate is not 1, then the snapshots at larger times will be given less weights in the cost function
@@ -101,9 +104,9 @@ class SimConfigs:
         os.makedirs(self.fig_path_SRG, exist_ok=True)
         os.makedirs(self.fig_path_SRN, exist_ok=True)
                 
-        self.x = np.linspace(0, self.Lx, num=self.nx, endpoint=False)
+        self.x = np.linspace(-self.Lx / 2.0, self.Lx / 2.0, num=self.nx, endpoint=False)
         self.y = np.cos(np.pi * np.linspace(0, self.ny - 1, num=self.ny) / (self.ny - 1))
-        self.z = np.linspace(0, self.Lz, num=self.nz, endpoint=False)
+        self.z = np.linspace(-self.Lz / 2.0, self.Lz / 2.0, num=self.nz, endpoint=False)
         self.X, self.Y, self.Z = np.meshgrid(self.x, self.y, self.z, indexing='ij')
         
         # Base flow
@@ -145,13 +148,6 @@ class SimConfigs:
         self.snapshot_end_time_idx_POD = 1 + int(self.timespan_percentage_POD * (len(self.tsave) - 1)) # 1001
         self.snapshot_start_time_idx_NiTROM_training = 0
         self.snapshot_end_time_idx_NiTROM_training = 1 + int(self.timespan_percentage_NiTROM_training * (len(self.tsave) - 1))
-        
-        self.psi0 = np.zeros((self.nx, self.ny, self.nz, self.n_traj))
-
-        for idx in range(self.n_traj):
-            # self.psi0[:, :, :, idx] = self.amp * (1 - self.Y**2)**2 * (self.X - self.Lx/2)**2 * ((self.Z - self.Lz/2)/2)**2 * np.exp(-((self.X - self.Lx/2)/2)**2 - ((self.Z - self.Lz/2)/2)**2) 
-            self.psi0[:, :, :, idx] = self.amp * (1 - self.Y**2)**2 * ((self.X - self.Lx/2)/2)**2 * (self.Z - self.Lz/2)**2 * np.exp(-((self.X - self.Lx/2)/2)**2 - ((self.Z - self.Lz/2)/2)**2) 
-    
         
 def load_configs():
     return SimConfigs()

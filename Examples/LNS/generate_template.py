@@ -1,16 +1,9 @@
 import numpy as np 
 import scipy 
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 from matplotlib.animation import FuncAnimation
-from mpi4py import MPI
 
-from scipy.interpolate import interp1d
-from scipy.integrate import solve_ivp
 import sys
-import os
-# plt.rcParams.update({"font.family":"serif","font.sans-serif":["Computer Modern"],'font.size':18,'text.usetex':True})
-# plt.rc('text.latex',preamble=r'\usepackage{amsmath}')
 sys.path.append("../../PyManopt_Functions/")
 sys.path.append("../../Optimization_Functions/")
 
@@ -19,17 +12,12 @@ import fom_class_LNS
 import func_plot
 
 """
-Generate the snapshots of 3D linearized NS equations for channel flow
+Generate the template field for symmetry reduction of 3D LNS equations in a channel flow
 
-See Henningson, Lundbladh and Johannsson 1993, "A mechanism for bypass transition
-from localized disturbances in wall-bounded shear flows" for initial conditions and numerical setups
+q_template = [v_template; eta_template] = [f_v(y); f_eta(y)] * cos(2pi x / Lx)
 
-See Schmid and Henningson 2001, "Stability and Transition in Shear Flows":
-    a) p.147 and p.148 Fig. 4.19 for the time evolution (and downstream drifting) of initial localized disturbance.
-    b) p.144 Fig. 4.16(c)(f) for the shape of initial localized disturbance.
-    c) Fig.1 and eq.1(a-c) and eq.2 from Henningson et al. (1993) for the mathematical form of the initial localized disturbance
-    d) Table 1 from Henningson et al. (1993) for the domain size, grid points number, and other parameters used in the simulation
-    
+See Marensi, Yalniz, Hof and Budanur 2023, "Symmetry-reduced dynamic mode decomposition of near-wall turbulence" for reference.
+
 Current progress:
 
 1. Successfully verify that our initial condition has zero x-z mean streamwise and spanwise velocity component (u and w) to ensure (u_ff)_{0, 0} = (w_ff)_{0, 0} = 0 (thus the disturbance kinetic energy can be well defined using only v and eta components).
@@ -47,75 +35,155 @@ fom = fom_class_LNS.LNS(params.Lx, params.Ly, params.Lz,
                         params.U_base, params.U_base_dy, params.U_base_dyy)
 tstep_kse_fom = fom_class_LNS.time_step_LNS(fom, params.time)
 
-v0 = fom.diff_z(params.psi0[:, :, :, 0], order = 1)
-eta0 = fom.diff_x(fom.diff_1_y(params.psi0[:, :, :, 0]), order = 1)
-
 # endregion
 
-# region 2: Simulations
+# region 2: Simulations of all initial conditions for training to generate training trajectories.
+print("Running FOM simulation to generate training trajectories for finding the trajectory template...")
 
-# Before doing any data generation, we first run on the benchmark training trajectory to get the trajectory template
-
-print("Running the benchmark simulation")
-traj_init = np.concatenate((v0.ravel(), eta0.ravel()))
-traj, tsave = tstep_kse_fom.time_step(traj_init, params.nsave) # traj is in the physical domain and is of the shape (2 * nx * ny * nz, nsave_samples)
-traj_PSD = fom.compute_PSD(traj) ### Compute the Power Spectral Density (PSD) of the trajectory for various wavenumbers (kx, kz), which will be a pcolormesh plot later of (kx, kz, PSD(kx, kz, N_snapshots))
-
-kx = fom.kx
-kz = fom.kz
-KX, KZ = np.meshgrid(kx, kz, indexing='ij')
-fig, ax = plt.subplots(figsize=(10, 10))
-
-# --- 1. 定义截断框 (保持不变, ratio = 2 是不进行截断) ---
-ratio = 2
-kxc = (params.nx // ratio) * (2*np.pi/fom.Lx)
-kzc = (params.nz // ratio) * (2*np.pi/fom.Lz)
-# 将这些坐标打包，准备传给 update 函数
-box_coords = ([-kxc, kxc, kxc, -kxc, -kxc], [-kzc, -kzc, kzc, kzc, -kzc])
-
-levels = [1e-16, 1e-14, 1e-12, 1e-10, 1e-6, 1e-4, 1e-2, 0.1, 0.5]
-
-# --- 2. 修改 update 函数以接收参数 ---
-def update(frame, rect_x, rect_z): # 添加了参数接收
-    ax.clear()
+# for idx_traj_training in range(params.n_traj_training // 2): # we first simulate the TS-wave type disturbances
+#     traj_init = np.load(params.fname_traj_init % idx_traj_training)
+#     traj, tsave = tstep_kse_fom.time_step(traj_init, params.nsave) # traj is in the physical domain and is of the shape (2 * nx * ny * nz, nsave_samples)
+#     np.save(params.fname_traj % idx_traj_training, traj)
+#     disturbance_kinetic_energy = np.zeros(len(tsave))
+#     for idx_time in range (len(tsave)):
+#         traj_v = traj[0 : params.nx * params.ny * params.nz, idx_time].reshape((params.nx, params.ny, params.nz))
+#         traj_eta = traj[params.nx * params.ny * params.nz : , idx_time].reshape((params.nx, params.ny, params.nz))
+#         disturbance_kinetic_energy[idx_time] = fom.inner_product_3D(traj_v, traj_eta, traj_v, traj_eta)
     
-    psd = traj_PSD[:, :, frame]
-    # 归一化：除以当前时刻总能量，关注“形状”
-    total_E = np.sum(psd)
-    if total_E > 0:
-        psd_norm = psd / total_E
-    else:
-        psd_norm = psd
+#     plt.figure()
+#     plt.plot(tsave, disturbance_kinetic_energy)
+#     plt.xlabel("Time")
+#     plt.ylabel("Disturbance Kinetic Energy")
+#     plt.title(f"Disturbance Kinetic Energy vs Time for TS-wave traj {idx_traj_training}")
+#     plt.tight_layout()
+#     plt.savefig(f"disturbance_kinetic_energy_TS_rotation_{idx_traj_training * params.rotation_angle_bound // (params.n_traj_training // 2)}.png")
+#     plt.close()
+#     # traj_PSD = fom.compute_PSD(traj) ### Compute the Power Spectral Density (PSD) of the trajectory for various wavenumbers (kx, kz), which will be a pcolormesh plot later of (kx, kz, PSD(kx, kz, N_snapshots))
+
+#     # kx = fom.kx
+#     # kz = fom.kz
+#     # KX, KZ = np.meshgrid(kx, kz, indexing='ij')
+#     # fig, ax = plt.subplots(figsize=(10, 10))
+
+#     # # --- 1. 定义截断框 (保持不变, ratio = 2 是不进行截断) ---
+#     # ratio = 2
+#     # kxc = (params.nx // ratio) * (2*np.pi/fom.Lx)
+#     # kzc = (params.nz // ratio) * (2*np.pi/fom.Lz)
+#     # # 将这些坐标打包，准备传给 update 函数
+#     # box_coords = ([-kxc, kxc, kxc, -kxc, -kxc], [-kzc, -kzc, kzc, kzc, -kzc])
+
+#     # levels = [1e-16, 1e-14, 1e-12, 1e-10, 1e-6, 1e-4, 1e-2, 0.1, 0.5]
+
+#     # # --- 2. 修改 update 函数以接收参数 ---
+#     # def update(frame, rect_x, rect_z): # 添加了参数接收
+#     #     ax.clear()
         
-    # 绘图
-    CS = ax.contour(KX, KZ, psd_norm, levels=levels, colors='k', linewidths=0.5)
-    ax.clabel(CS, inline=1, fontsize=8, fmt='%1.0e')
-    ax.contourf(KX, KZ, psd_norm, levels=levels, cmap='inferno_r', alpha=0.5)
-    
-    # 画出截断框 (使用传入的参数，并增加 zorder)
-    ax.plot(rect_x, rect_z, 'r--', linewidth=2, label='Mesh Limit', zorder=10)
-    
-    # --- 重要：在 clear 后重新添加图例 ---
-    ax.legend(loc='upper right')
-    
-    ax.set_title(f"Time: {tsave[frame]:.2f} | Total Energy: {total_E:.2e}")
-    ax.set_xlabel('kx')
-    ax.set_ylabel('kz')
-    # 固定坐标轴范围，防止抖动
-    ax.set_xlim(kx.min(), kx.max())
-    ax.set_ylim(kz.min(), kz.max())
+#     #     psd = traj_PSD[:, :, frame]
+#     #     # 归一化：除以当前时刻总能量，关注“形状”
+#     #     total_E = np.sum(psd)
+#     #     if total_E > 0:
+#     #         psd_norm = psd / total_E
+#     #     else:
+#     #         psd_norm = psd
+            
+#     #     # 绘图
+#     #     CS = ax.contour(KX, KZ, psd_norm, levels=levels, colors='k', linewidths=0.5)
+#     #     ax.clabel(CS, inline=1, fontsize=8, fmt='%1.0e')
+#     #     ax.contourf(KX, KZ, psd_norm, levels=levels, cmap='inferno_r', alpha=0.5)
+        
+#     #     # 画出截断框 (使用传入的参数，并增加 zorder)
+#     #     ax.plot(rect_x, rect_z, 'r--', linewidth=2, label='Mesh Limit', zorder=10)
+        
+#     #     # --- 重要：在 clear 后重新添加图例 ---
+#     #     ax.legend(loc='upper right')
+        
+#     #     ax.set_title(f"Time: {tsave[frame]:.2f} | Total Energy: {total_E:.2e}")
+#     #     ax.set_xlabel('kx')
+#     #     ax.set_ylabel('kz')
+#     #     # 固定坐标轴范围，防止抖动
+#     #     ax.set_xlim(kx.min(), kx.max())
+#     #     ax.set_ylim(kz.min(), kz.max())
 
-# --- 3. 在 FuncAnimation 中使用 fargs 传递参数 ---
-# 注意 fargs 需要是一个元组
-anim = FuncAnimation(fig, update, frames=traj_PSD.shape[2], interval=100,
-                     fargs=box_coords) # 将 box_coords 解包传给 rect_x, rect_z
+#     # # --- 3. 在 FuncAnimation 中使用 fargs 传递参数 ---
+#     # # 注意 fargs 需要是一个元组
+#     # anim = FuncAnimation(fig, update, frames=traj_PSD.shape[2], interval=100,
+#     #                      fargs=box_coords) # 将 box_coords 解包传给 rect_x, rect_z
 
-# 保存为 gif
-anim.save('psd_evolution.gif', writer='pillow', fps=10)
-plt.show()
+#     # # 保存为 gif
+#     # anim.save(f'psd_evolution_TS_rotation_{idx_traj_training * params.rotation_angle_bound // (params.n_traj_training // 2)}.gif', writer='pillow', fps=10)
+    
+# for idx_traj_training in range(params.n_traj_training // 2): # we next simulate the oblique-wave type disturbances
+#     traj_init = np.load(params.fname_traj_init % (idx_traj_training + params.n_traj_training // 2))
+#     traj, tsave = tstep_kse_fom.time_step(traj_init, params.nsave) # traj is in the physical domain and is of the shape (2 * nx * ny * nz, nsave_samples)
+#     np.save(params.fname_traj % (idx_traj_training + params.n_traj_training // 2), traj)
+#     disturbance_kinetic_energy = np.zeros(len(tsave))
+#     for idx_time in range (len(tsave)):
+#         traj_v = traj[0 : params.nx * params.ny * params.nz, idx_time].reshape((params.nx, params.ny, params.nz))
+#         traj_eta = traj[params.nx * params.ny * params.nz : , idx_time].reshape((params.nx, params.ny, params.nz))
+#         disturbance_kinetic_energy[idx_time] = fom.inner_product_3D(traj_v, traj_eta, traj_v, traj_eta)
+        
+#     plt.figure()
+#     plt.plot(tsave, disturbance_kinetic_energy)
+#     plt.xlabel("Time")
+#     plt.ylabel("Disturbance Kinetic Energy")
+#     plt.title(f"Disturbance Kinetic Energy vs Time for oblique-wave traj {idx_traj_training}")
+#     plt.tight_layout()
+#     plt.savefig(f"disturbance_kinetic_energy_oblique_rotation_{idx_traj_training * params.rotation_angle_bound // (params.n_traj_training // 2)}.png")
+#     plt.close()
 
-traj_v = traj[0 : params.nx * params.ny * params.nz, :].reshape((params.nx, params.ny, params.nz, -1))
-traj_eta = traj[params.nx * params.ny * params.nz : , :].reshape((params.nx, params.ny, params.nz, -1))
+    # traj_PSD = fom.compute_PSD(traj) ### Compute the Power Spectral Density (PSD) of the trajectory for various wavenumbers (kx, kz), which will be a pcolormesh plot later of (kx, kz, PSD(kx, kz, N_snapshots))
+
+    # kx = fom.kx
+    # kz = fom.kz
+    # KX, KZ = np.meshgrid(kx, kz, indexing='ij')
+    # fig, ax = plt.subplots(figsize=(10, 10))
+
+    # # --- 1. 定义截断框 (保持不变, ratio = 2 是不进行截断) ---
+    # ratio = 2
+    # kxc = (params.nx // ratio) * (2*np.pi/fom.Lx)
+    # kzc = (params.nz // ratio) * (2*np.pi/fom.Lz)
+    # # 将这些坐标打包，准备传给 update 函数
+    # box_coords = ([-kxc, kxc, kxc, -kxc, -kxc], [-kzc, -kzc, kzc, kzc, -kzc])
+
+    # levels = [1e-16, 1e-14, 1e-12, 1e-10, 1e-6, 1e-4, 1e-2, 0.1, 0.5]
+
+    # # --- 2. 修改 update 函数以接收参数 ---
+    # def update(frame, rect_x, rect_z): # 添加了参数接收
+    #     ax.clear()
+        
+    #     psd = traj_PSD[:, :, frame]
+    #     # 归一化：除以当前时刻总能量，关注“形状”
+    #     total_E = np.sum(psd)
+    #     if total_E > 0:
+    #         psd_norm = psd / total_E
+    #     else:
+    #         psd_norm = psd
+            
+    #     # 绘图
+    #     CS = ax.contour(KX, KZ, psd_norm, levels=levels, colors='k', linewidths=0.5)
+    #     ax.clabel(CS, inline=1, fontsize=8, fmt='%1.0e')
+    #     ax.contourf(KX, KZ, psd_norm, levels=levels, cmap='inferno_r', alpha=0.5)
+        
+    #     # 画出截断框 (使用传入的参数，并增加 zorder)
+    #     ax.plot(rect_x, rect_z, 'r--', linewidth=2, label='Mesh Limit', zorder=10)
+        
+    #     # --- 重要：在 clear 后重新添加图例 ---
+    #     ax.legend(loc='upper right')
+        
+    #     ax.set_title(f"Time: {tsave[frame]:.2f} | Total Energy: {total_E:.2e}")
+    #     ax.set_xlabel('kx')
+    #     ax.set_ylabel('kz')
+    #     # 固定坐标轴范围，防止抖动
+    #     ax.set_xlim(kx.min(), kx.max())
+    #     ax.set_ylim(kz.min(), kz.max())
+
+    # # --- 3. 在 FuncAnimation 中使用 fargs 传递参数 ---
+    # # 注意 fargs 需要是一个元组
+    # anim = FuncAnimation(fig, update, frames=traj_PSD.shape[2], interval=100,
+    #                      fargs=box_coords) # 将 box_coords 解包传给 rect_x, rect_z
+
+    # # 保存为 gif
+    # anim.save(f'psd_evolution_oblique_rotation_{idx_traj_training * params.rotation_angle_bound // (params.n_traj_training // 2)}.gif', writer='pillow', fps=10)
 
 # for t_check in params.t_check_list_POD:
 
@@ -217,13 +285,15 @@ Ketaeta = np.diag(fom.Clenshaw_Curtis_weights)
 M[:params.ny, :params.ny]  = (params.Lx**2 / (16 * np.pi**2)) * Kvv
 M[params.ny:, params.ny:] = (params.Lx**2 / (16 * np.pi**2)) * Ketaeta
 
-for idx_time in range (len(params.tsave)):
-    traj_v_breve_k_neg_1_m_0 = fom.FFT_2D(traj[0 : params.nx * params.ny * params.nz, idx_time].reshape((params.nx, params.ny, params.nz)))[int(params.nx/2) - 1, :, int(params.nz/2)]
-    traj_eta_breve_k_neg_1_m_0 = fom.FFT_2D(traj[params.nx * params.ny * params.nz : , idx_time].reshape((params.nx, params.ny, params.nz)))[int(params.nx/2) - 1, :, int(params.nz/2)]
-    h_v = Kvv @ traj_v_breve_k_neg_1_m_0
-    h_eta = Ketaeta @ traj_eta_breve_k_neg_1_m_0
-    h_m = np.concatenate((h_v, h_eta))
-    K += np.outer(h_m, np.conj(h_m))
+for idx_traj in params.range_traj_template_generation:
+    traj = np.load(params.fname_traj % idx_traj) # traj is in the physical domain and is of the shape (2 * nx * ny * nz, nsave_samples)
+    for idx_time in range (len(params.tsave)):
+        traj_v_breve_k_neg_1_m_0 = fom.FFT_2D(traj[0 : params.nx * params.ny * params.nz, idx_time].reshape((params.nx, params.ny, params.nz)))[int(params.nx/2) - 1, :, int(params.nz/2)]
+        traj_eta_breve_k_neg_1_m_0 = fom.FFT_2D(traj[params.nx * params.ny * params.nz : , idx_time].reshape((params.nx, params.ny, params.nz)))[int(params.nx/2) - 1, :, int(params.nz/2)]
+        h_v = Kvv @ traj_v_breve_k_neg_1_m_0
+        h_eta = Ketaeta @ traj_eta_breve_k_neg_1_m_0
+        h_m = np.concatenate((h_v, h_eta))
+        K += np.outer(h_m, np.conj(h_m))
     
 K = np.real(K) # K is a Hermitian matrix, and we want to optimize f^T @ K @ f, where f is a real-valued vector, so we can just take the real part of K.
 

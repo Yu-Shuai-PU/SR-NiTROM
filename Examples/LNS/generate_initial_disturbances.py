@@ -214,7 +214,7 @@ def main():
         angle = np.deg2rad(idx_traj_training * (params.rotation_angle_bound / (params.n_traj_training // 2)))  # rotation angle in radians to introduce spanwise variation
         Xprime = np.cos(angle) * X + np.sin(angle) * Z
         Zprime = -np.sin(angle) * X + np.cos(angle) * Z
-        psi0 = (1 - Y**2)**2 * (Xprime/2) * np.exp(-(Xprime/2)**2 - (Zprime/2)**2)
+        psi0 = (1 - Y**2)**2 * (Xprime/2) * Zprime * np.exp(-(Xprime/2)**2 - (Zprime/2)**2)
         u0 = np.sin(angle) * fom.diff_1_y(psi0)
         v0 = - np.sin(angle) * fom.diff_x(psi0, order = 1) + np.cos(angle) * fom.diff_z(psi0, order = 1)
         w0 = - np.cos(angle) * fom.diff_1_y(psi0)

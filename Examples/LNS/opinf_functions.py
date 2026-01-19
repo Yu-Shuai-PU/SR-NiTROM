@@ -160,7 +160,7 @@ def perform_POD(pool, opt_obj, r, fom):
     Verified. The POD modes are orthogonal under the weighted inner product defined in fom.inner_product_3D.
     """
 
-    X = np.ascontiguousarray(opt_obj.X_fitted, dtype=np.double)
+    X = np.ascontiguousarray(opt_obj.X_fitted, dtype=np.double) # copy the opt_obj.X_fitted
     N_space = X.shape[1]
     N_snapshots = opt_obj.n_snapshots
 
@@ -174,21 +174,21 @@ def perform_POD(pool, opt_obj, r, fom):
     
     # 收集所有快照到 rank 0
     pool.comm.Gatherv(sendbuf = X,
-                      recvbuf = [X_all, my_counts, my_disps, MPI.DOUBLE], root=0)
+                      recvbuf = [X_all, my_counts, my_disps, MPI.DOUBLE], root=0) # again, copy X to have X_all
     
     if pool.rank == 0:
         # Reshape: (N_space, Total_Snapshots)
-        X_all = X_all.transpose(1,0,2).reshape(N_space,-1)
+        X_all = X_all.transpose(1,0,2).reshape(N_space,-1) # seems to copy again
         M_total = X_all.shape[1]
         
-        C = fom.compute_snapshot_correlation_matrix(X_all) 
+        C = fom.compute_snapshot_correlation_matrix(X_all) # large, N_snapshots x N_snapshots
         
         print(f"Rank 0: Correlation Matrix computed. Range: {C.min():.2e} to {C.max():.2e}")
 
         # 3. 求解特征值问题 C * v = lambda * v
         # eigh 专门用于实对称矩阵，速度快且更稳
-        eigvals, eigvecs = sp.linalg.eigh(C)
-        
+        eigvals, eigvecs = sp.linalg.eigh(C, subset_by_index=[M_total-r, M_total-1]) # can we only let it to compute the first r largest eigenvalues?
+        print(eigvals[-40:])
         # 4. 排序 (eigh 返回的是从小到大，需要反转)
         sorted_indices = np.argsort(eigvals)[::-1]
         lambdas = eigvals[sorted_indices]

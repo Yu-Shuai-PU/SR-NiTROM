@@ -77,10 +77,129 @@ def main():
                             params.U_base, params.U_base_dy, params.U_base_dyy)
     
     tstep_kse_fom = fom_class_LNS.time_step_LNS(fom, params.time)
+    X, Y, Z = params.X, params.Y, params.Z
     
     # endregion
     
-    # region 2: Generate initial disturbances that are centered around the least-stable 2D Tollmien-Schlichting (TS) wave at given Re
+    # region 2: Generate initial disturbances consisting of 2 pairs of counterrotating streamwise vortices centered around a pair of oblique waves (no kx = 0 or kz = 0 components)
+    # To enrich the training dataset, here we introduce rotation to rotate our benchmark initial condition to create more variations
+    
+    # Define the rotating coordinates
+    # x' = cos(theta) * x + sin(theta) * z
+    # z' = -sin(theta) * x + cos(theta) * z
+    
+    # To generate such initial disturbances, we first formulate the streamfunction field psi(x, y, z) as follows:
+    # psi(x, y, z) = (1 - y^2)^2 * (x'/2) * z' * exp(-(x'/2)^2 - (z'/2)^2)
+    
+    # Then, based on the continuity equation, we can formulate u and w as follows:
+    # u = sin(theta) * dpsi/dy
+    # v = dpsi/dz' = -sin(theta) * dpsi/dx + cos(theta) * dpsi/dz
+    # w = -cos(theta) * dpsi/dy
+    
+    # Finally, we obtain the normal vorticity
+    # eta(x, y, z) = du/dz - dw/dx
+    
+    for idx_traj_training in range(params.n_traj_training // params.n_traj_training_type): # 0, 1, ..., 11
+        angle = np.deg2rad(idx_traj_training * (params.rotation_angle_bound / (params.n_traj_training // params.n_traj_training_type)))  # rotation angle in radians to introduce spanwise variation
+        Xprime = np.cos(angle) * X + np.sin(angle) * Z
+        Zprime = -np.sin(angle) * X + np.cos(angle) * Z
+        if params.n_traj_training_type == 1: # if only 1 oblique-wave type initial disturbance (e.g., demo case)
+            # since v0 = dpsi0/dz, f_v in the template must be 0
+            # since eta0 = d^2psi/dxdy, if psi is odd in Z, then eta0 is also odd in Z, f_eta in the template must be 0
+            # Consequently, the total template will be zero if both f_v and f_eta are zero, which leads to singularity in template fitting and symmetry reduction
+            # thus, to avoid both 0 issue, we need to use a even function in Z for psi
+            psi0 = (1 - Y**2)**2 * (Xprime/2) * np.exp(-(Xprime/2)**2 - (Zprime/2)**2)
+        else: # with multiple oblique-wave type and TS-wave type initial disturbances, we don't need to worry about the zero-template issue brought by the symmetry
+            psi0 = (1 - Y**2)**2 * (Xprime/2) * Zprime * np.exp(-(Xprime/2)**2 - (Zprime/2)**2)
+        u0 = np.sin(angle) * fom.diff_1_y(psi0)
+        v0 = - np.sin(angle) * fom.diff_x(psi0, order = 1) + np.cos(angle) * fom.diff_z(psi0, order = 1)
+        w0 = - np.cos(angle) * fom.diff_1_y(psi0)
+        eta0 = fom.diff_z(u0, order = 1) - fom.diff_x(w0, order = 1)
+        initial_disturbance_energy = fom.inner_product_3D(v0, eta0, v0, eta0)
+        print("Initial disturbance energy before normalization: %.6e" % initial_disturbance_energy)
+    
+        # compute the initial disturbance energy for normalization
+        
+        v0   = v0 / np.sqrt(initial_disturbance_energy)  # shape (nx, ny, nz, n_traj)
+        eta0 = eta0 / np.sqrt(initial_disturbance_energy)  # shape (nx, ny, nz, n_traj)
+        
+        np.save(params.fname_traj_init%idx_traj_training, np.concatenate((v0.ravel(), eta0.ravel())))
+        
+        idx_ycheck = np.argmin(np.abs(params.y - params.y_check))
+        
+        v0_ycheck = v0[:, idx_ycheck, :]
+        eta0_ycheck = eta0[:, idx_ycheck, :]
+        v_min = np.min(v0_ycheck)
+        v_max = np.max(v0_ycheck)
+        # v_spacing = 1e-6  # 等高线间距
+        
+        eta_min = np.min(eta0_ycheck)
+        eta_max = np.max(eta0_ycheck)
+        # eta_spacing = 1e-6  # 等高线间距
+
+        # 构造等高线 levels
+        # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
+        plt.figure(figsize=(10,6))
+        # plt.contourf(x, z, v0_ycheck.T, levels=levels, cmap='jet')
+        plt.pcolormesh(params.x, params.z, v0_ycheck.T, cmap='bwr')
+        plt.gca().set_aspect('equal', adjustable='box')
+        plt.colorbar()
+        plt.xlabel(r"$x$")
+        plt.ylabel(r"$z$")
+        plt.xlim(np.min(params.x), np.max(params.x))
+        plt.ylim(np.min(params.z), np.max(params.z))
+        plt.title(f"Initial Normal velocity v at y={params.y_check}")
+        plt.tight_layout()
+        plt.show()
+        
+        plt.figure(figsize=(10, 6))
+        # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
+        cs = plt.contour(params.x, params.z, v0_ycheck.T, colors='black', linewidths=0.6)
+        plt.gca().set_aspect('equal', adjustable='box')
+        # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
+        # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
+        # plt.colorbar()
+        plt.xlabel(r"$x$")
+        plt.ylabel(r"$z$")
+        plt.xlim(np.min(params.x), np.max(params.x))
+        plt.ylim(np.min(params.z), np.max(params.z))
+        plt.title(f"Contours of initial normal velocity v at y={params.y_check}")
+        plt.tight_layout()
+        plt.show()
+        
+        # 构造等高线 levels
+        # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
+        plt.figure(figsize=(10,6))
+        # plt.contourf(x, z, v0_ycheck.T, levels=levels, cmap='jet')
+        plt.pcolormesh(params.x, params.z, eta0_ycheck.T, cmap='bwr')
+        plt.gca().set_aspect('equal', adjustable='box')
+        plt.colorbar()
+        plt.xlabel(r"$x$")
+        plt.ylabel(r"$z$")
+        plt.xlim(np.min(params.x), np.max(params.x))
+        plt.ylim(np.min(params.z), np.max(params.z))
+        plt.title(f"Initial Normal vorticity eta at y={params.y_check}")
+        plt.tight_layout()
+        plt.show()
+        
+        plt.figure(figsize=(10, 6))
+        # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
+        cs = plt.contour(params.x, params.z, eta0_ycheck.T, colors='black', linewidths=0.6)
+        plt.gca().set_aspect('equal', adjustable='box')
+        # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
+        # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
+        # plt.colorbar()
+        plt.xlabel(r"$x$")
+        plt.ylabel(r"$z$")
+        plt.xlim(np.min(params.x), np.max(params.x))
+        plt.ylim(np.min(params.z), np.max(params.z))
+        plt.title(f"Contours of initial normal vorticity eta at y={params.y_check}")
+        plt.tight_layout()
+        plt.show()
+        
+    # endregion
+    
+    # region 3: Generate initial disturbances that are centered around the least-stable 2D Tollmien-Schlichting (TS) wave at given Re
     # To enrich the training dataset, here we introduce rotation to rotate our benchmark initial condition to create more variations
     
     # Define the rotating coordinates
@@ -104,171 +223,94 @@ def main():
     # 4. figure out the initial u and w field from the continuity equation
     # 5. figure out the initial normal vorticity field eta(x, y, z) from u and w fields
     
-    kx_TS, vhat_TS, maximal_growth_rate = generate_IC_around_2D_TS(params, fom)
+    if params.n_traj_training_type == 2:
     
-    X, Y, Z = params.X, params.Y, params.Z
-    
-    for idx_traj_training in range(params.n_traj_training // 2): # 0, 1, ..., 11
-        angle = np.deg2rad(idx_traj_training * (params.rotation_angle_bound / (params.n_traj_training // 2)))  # rotation angle in radians to introduce spanwise variation
-        Xprime = np.cos(angle) * X + np.sin(angle) * Z
-        Zprime = -np.sin(angle) * X + np.cos(angle) * Z
-        v0 = (vhat_TS[np.newaxis, :, np.newaxis] * np.exp(1j * kx_TS * Xprime) * np.exp(-(Xprime)**2 - (Zprime/4)**2)).real
-        # after we figure out v0(x, y, z), we then compute psi0
-        # v = cos(theta) * dpsi/dx + sin(theta) * dpsi/dz
-        # that means v_breve(kx, y, kz) = 1j * (kx * cos(theta) + kz * sin(theta)) * psi_breve(kx, y, kz)
-        # or psi_breve(kx, y, kz) = -1j * v_breve(kx, y, kz) / (kx * cos(theta) + kz * sin(theta))
-        v0_breve = fom.FFT_2D(v0)
-        psi0_breve = np.zeros_like(v0_breve, dtype=complex)
-        for idx_x in range(params.nx):
-            kx = fom.kx[idx_x]
-            for idx_z in range(params.nz):
-                kz = fom.kz[idx_z]
-                denom = kx * np.cos(angle) + kz * np.sin(angle)
-                # print("Processing kx = %.4f, kz = %.4f, denom = %.4f" % (kx, kz, denom))
-                if np.abs(denom) > 1e-6:
-                    psi0_breve[idx_x, :, idx_z] = -1j * v0_breve[idx_x, :, idx_z] / denom
-                else:
-                    psi0_breve[idx_x, :, idx_z] = 0.0
-        # after we figure out psi0, we then compute u0 and w0 from continuity equation
-        # u = -cos(theta) * dpsi/dy
-        # v = cos(theta) * dpsi/dx + sin(theta) * dpsi/dz
-        # w = -sin(theta) * dpsi/dy
-        psi0 = fom.IFFT_2D(psi0_breve)
-        u0 = - np.cos(angle) * fom.diff_1_y(psi0)
-        w0 = - np.sin(angle) * fom.diff_1_y(psi0)
-        v0 = np.cos(angle) * fom.diff_x(psi0, order = 1) + np.sin(angle) * fom.diff_z(psi0, order = 1)
-    
-        # finally, we compute eta0
-        eta0 = fom.diff_z(u0, order = 1) - fom.diff_x(w0, order = 1)
-        initial_disturbance_energy = fom.inner_product_3D(v0, eta0, v0, eta0)
-        print("Initial disturbance energy before normalization: %.6e" % initial_disturbance_energy)
-    
-        # compute the initial disturbance energy for normalization
+        kx_TS, vhat_TS, maximal_growth_rate = generate_IC_around_2D_TS(params, fom)
         
-        v0   = v0 / np.sqrt(initial_disturbance_energy)  # shape (nx, ny, nz, n_traj)
-        eta0 = eta0 / np.sqrt(initial_disturbance_energy)  # shape (nx, ny, nz, n_traj)
+        X, Y, Z = params.X, params.Y, params.Z
         
-        np.save(params.fname_traj_init%idx_traj_training, np.concatenate((v0.ravel(), eta0.ravel())))
+        for idx_traj_training in range(params.n_traj_training // params.n_traj_training_type): # 0, 1, ..., 11
+            angle = np.deg2rad(idx_traj_training * (params.rotation_angle_bound / (params.n_traj_training // params.n_traj_training_type)))  # rotation angle in radians to introduce spanwise variation
+            Xprime = np.cos(angle) * X + np.sin(angle) * Z
+            Zprime = -np.sin(angle) * X + np.cos(angle) * Z
+            v0 = (vhat_TS[np.newaxis, :, np.newaxis] * np.exp(1j * kx_TS * Xprime) * np.exp(-(Xprime)**2 - (Zprime/4)**2)).real
+            # after we figure out v0(x, y, z), we then compute psi0
+            # v = cos(theta) * dpsi/dx + sin(theta) * dpsi/dz
+            # that means v_breve(kx, y, kz) = 1j * (kx * cos(theta) + kz * sin(theta)) * psi_breve(kx, y, kz)
+            # or psi_breve(kx, y, kz) = -1j * v_breve(kx, y, kz) / (kx * cos(theta) + kz * sin(theta))
+            v0_breve = fom.FFT_2D(v0)
+            psi0_breve = np.zeros_like(v0_breve, dtype=complex)
+            for idx_x in range(params.nx):
+                kx = fom.kx[idx_x]
+                for idx_z in range(params.nz):
+                    kz = fom.kz[idx_z]
+                    denom = kx * np.cos(angle) + kz * np.sin(angle)
+                    # print("Processing kx = %.4f, kz = %.4f, denom = %.4f" % (kx, kz, denom))
+                    if np.abs(denom) > 1e-6:
+                        psi0_breve[idx_x, :, idx_z] = -1j * v0_breve[idx_x, :, idx_z] / denom
+                    else:
+                        psi0_breve[idx_x, :, idx_z] = 0.0
+            # after we figure out psi0, we then compute u0 and w0 from continuity equation
+            # u = -cos(theta) * dpsi/dy
+            # v = cos(theta) * dpsi/dx + sin(theta) * dpsi/dz
+            # w = -sin(theta) * dpsi/dy
+            psi0 = fom.IFFT_2D(psi0_breve)
+            u0 = - np.cos(angle) * fom.diff_1_y(psi0)
+            w0 = - np.sin(angle) * fom.diff_1_y(psi0)
+            v0 = np.cos(angle) * fom.diff_x(psi0, order = 1) + np.sin(angle) * fom.diff_z(psi0, order = 1)
         
-        # idx_ycheck = np.argmin(np.abs(params.y - params.y_check))
+            # finally, we compute eta0
+            eta0 = fom.diff_z(u0, order = 1) - fom.diff_x(w0, order = 1)
+            initial_disturbance_energy = fom.inner_product_3D(v0, eta0, v0, eta0)
+            print("Initial disturbance energy before normalization: %.6e" % initial_disturbance_energy)
         
-        # v0_ycheck = v0[:, idx_ycheck, :]
-        # eta0_ycheck = eta0[:, idx_ycheck, :]
-        # v_min = np.min(v0_ycheck)
-        # v_max = np.max(v0_ycheck)
-        # # v_spacing = 1e-6  # 等高线间距
-        
-        # eta_min = np.min(eta0_ycheck)
-        # eta_max = np.max(eta0_ycheck)
-        # # eta_spacing = 1e-6  # 等高线间距
+            # compute the initial disturbance energy for normalization
+            
+            v0   = v0 / np.sqrt(initial_disturbance_energy)  # shape (nx, ny, nz, n_traj)
+            eta0 = eta0 / np.sqrt(initial_disturbance_energy)  # shape (nx, ny, nz, n_traj)
+            
+            np.save(params.fname_traj_init%(idx_traj_training + params.n_traj_training // params.n_traj_training_type), np.concatenate((v0.ravel(), eta0.ravel())))
+            
+            # idx_ycheck = np.argmin(np.abs(params.y - params.y_check))
+            
+            # v0_ycheck = v0[:, idx_ycheck, :]
+            # eta0_ycheck = eta0[:, idx_ycheck, :]
+            # v_min = np.min(v0_ycheck)
+            # v_max = np.max(v0_ycheck)
+            # # v_spacing = 1e-6  # 等高线间距
+            
+            # eta_min = np.min(eta0_ycheck)
+            # eta_max = np.max(eta0_ycheck)
+            # # eta_spacing = 1e-6  # 等高线间距
 
-        # # 构造等高线 levels
-        # # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
-        # plt.figure(figsize=(10,6))
-        # # plt.contourf(x, z, v0_ycheck.T, levels=levels, cmap='jet')
-        # plt.pcolormesh(params.x, params.z, v0_ycheck.T, cmap='bwr')
-        # plt.colorbar()
-        # plt.xlabel(r"$x$")
-        # plt.ylabel(r"$z$")
-        # plt.xlim(np.min(params.x), np.max(params.x))
-        # plt.ylim(np.min(params.z), np.max(params.z))
-        # plt.title(f"Initial Normal velocity v at y={params.y_check}")
-        # plt.tight_layout()
-        # plt.show()
-        
-        # plt.figure(figsize=(10, 6))
-        # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
-        # cs = plt.contour(params.x, params.z, v0_ycheck.T, colors='black', linewidths=0.6)
-        # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
-        # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
-        # # plt.colorbar()
-        # plt.xlabel(r"$x$")
-        # plt.ylabel(r"$z$")
-        # plt.xlim(np.min(params.x), np.max(params.x))
-        # plt.ylim(np.min(params.z), np.max(params.z))
-        # plt.title(f"Contours of initial normal velocity v at y={params.y_check}")
-        # plt.tight_layout()
-        # plt.show()
-        
-    # endregion
-    
-    # region 3: Generate initial disturbances consisting of 2 pairs of counterrotating streamwise vortices centered around a pair of oblique waves (no kx = 0 or kz = 0 components)
-    # To enrich the training dataset, here we introduce rotation to rotate our benchmark initial condition to create more variations
-    
-    # Define the rotating coordinates
-    # x' = cos(theta) * x + sin(theta) * z
-    # z' = -sin(theta) * x + cos(theta) * z
-    
-    # To generate such initial disturbances, we first formulate the streamfunction field psi(x, y, z) as follows:
-    # psi(x, y, z) = (1 - y^2)^2 * (x'/2) * z' * exp(-(x'/2)^2 - (z'/2)^2)
-    
-    # Then, based on the continuity equation, we can formulate u and w as follows:
-    # u = sin(theta) * dpsi/dy
-    # v = dpsi/dz' = -sin(theta) * dpsi/dx + cos(theta) * dpsi/dz
-    # w = -cos(theta) * dpsi/dy
-    
-    # Finally, we obtain the normal vorticity
-    # eta(x, y, z) = du/dz - dw/dx
-    
-    for idx_traj_training in range(params.n_traj_training // 2): # 0, 1, ..., 11
-        angle = np.deg2rad(idx_traj_training * (params.rotation_angle_bound / (params.n_traj_training // 2)))  # rotation angle in radians to introduce spanwise variation
-        Xprime = np.cos(angle) * X + np.sin(angle) * Z
-        Zprime = -np.sin(angle) * X + np.cos(angle) * Z
-        psi0 = (1 - Y**2)**2 * (Xprime/2) * Zprime * np.exp(-(Xprime/2)**2 - (Zprime/2)**2)
-        u0 = np.sin(angle) * fom.diff_1_y(psi0)
-        v0 = - np.sin(angle) * fom.diff_x(psi0, order = 1) + np.cos(angle) * fom.diff_z(psi0, order = 1)
-        w0 = - np.cos(angle) * fom.diff_1_y(psi0)
-        eta0 = fom.diff_z(u0, order = 1) - fom.diff_x(w0, order = 1)
-        initial_disturbance_energy = fom.inner_product_3D(v0, eta0, v0, eta0)
-        print("Initial disturbance energy before normalization: %.6e" % initial_disturbance_energy)
-    
-        # compute the initial disturbance energy for normalization
-        
-        v0   = v0 / np.sqrt(initial_disturbance_energy)  # shape (nx, ny, nz, n_traj)
-        eta0 = eta0 / np.sqrt(initial_disturbance_energy)  # shape (nx, ny, nz, n_traj)
-        
-        np.save(params.fname_traj_init%(idx_traj_training + params.n_traj_training // 2), np.concatenate((v0.ravel(), eta0.ravel())))
-        
-        # idx_ycheck = np.argmin(np.abs(params.y - params.y_check))
-        
-        # v0_ycheck = v0[:, idx_ycheck, :]
-        # eta0_ycheck = eta0[:, idx_ycheck, :]
-        # v_min = np.min(v0_ycheck)
-        # v_max = np.max(v0_ycheck)
-        # # v_spacing = 1e-6  # 等高线间距
-        
-        # eta_min = np.min(eta0_ycheck)
-        # eta_max = np.max(eta0_ycheck)
-        # # eta_spacing = 1e-6  # 等高线间距
-
-        # # 构造等高线 levels
-        # # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
-        # plt.figure(figsize=(10,6))
-        # # plt.contourf(x, z, v0_ycheck.T, levels=levels, cmap='jet')
-        # plt.pcolormesh(params.x, params.z, v0_ycheck.T, cmap='bwr')
-        # plt.colorbar()
-        # plt.xlabel(r"$x$")
-        # plt.ylabel(r"$z$")
-        # plt.xlim(np.min(params.x), np.max(params.x))
-        # plt.ylim(np.min(params.z), np.max(params.z))
-        # plt.title(f"Initial Normal velocity v at y={params.y_check}")
-        # plt.tight_layout()
-        # plt.show()
-        
-        # plt.figure(figsize=(10, 6))
-        # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
-        # cs = plt.contour(params.x, params.z, v0_ycheck.T, colors='black', linewidths=0.6)
-        # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
-        # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
-        # # plt.colorbar()
-        # plt.xlabel(r"$x$")
-        # plt.ylabel(r"$z$")
-        # plt.xlim(np.min(params.x), np.max(params.x))
-        # plt.ylim(np.min(params.z), np.max(params.z))
-        # plt.title(f"Contours of initial normal velocity v at y={params.y_check}")
-        # plt.tight_layout()
-        # plt.show()
-        
+            # # 构造等高线 levels
+            # # levels = np.arange(v_min - v_spacing, v_max + v_spacing, v_spacing)
+            # plt.figure(figsize=(10,6))
+            # # plt.contourf(x, z, v0_ycheck.T, levels=levels, cmap='jet')
+            # plt.pcolormesh(params.x, params.z, v0_ycheck.T, cmap='bwr')
+            # plt.colorbar()
+            # plt.xlabel(r"$x$")
+            # plt.ylabel(r"$z$")
+            # plt.xlim(np.min(params.x), np.max(params.x))
+            # plt.ylim(np.min(params.z), np.max(params.z))
+            # plt.title(f"Initial Normal velocity v at y={params.y_check}")
+            # plt.tight_layout()
+            # plt.show()
+            
+            # plt.figure(figsize=(10, 6))
+            # # cs = plt.contour(x, z, v_slice_ycheck.T, levels=levels, colors='black', linewidths=0.6)
+            # cs = plt.contour(params.x, params.z, v0_ycheck.T, colors='black', linewidths=0.6)
+            # # plt.clabel(cs, inline=True, fontsize=8, fmt="%.1e")  # 可选：在曲线上标出数值
+            # # plt.pcolormesh(x, z, eta_slice_ycheck.T, cmap='bwr')
+            # # plt.colorbar()
+            # plt.xlabel(r"$x$")
+            # plt.ylabel(r"$z$")
+            # plt.xlim(np.min(params.x), np.max(params.x))
+            # plt.ylim(np.min(params.z), np.max(params.z))
+            # plt.title(f"Contours of initial normal velocity v at y={params.y_check}")
+            # plt.tight_layout()
+            # plt.show()
+            
     # endregion
     
 if __name__ == "__main__":

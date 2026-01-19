@@ -159,45 +159,34 @@ def perform_POD(pool, opt_obj, r, fom):
     """
     Verified. The POD modes are orthogonal under the weighted inner product defined in fom.inner_product_3D.
     """
-
-    X = np.ascontiguousarray(opt_obj.X_fitted, dtype=np.double) # copy the opt_obj.X_fitted
-    N_space = X.shape[1]
-    N_snapshots = opt_obj.n_snapshots
-
-    if pool.rank == 0:
-        X_all = np.empty((pool.n_traj, N_space, N_snapshots))
-    else:
-        X_all = None
-
+    N_space = opt_obj.X_fitted.shape[1]
+    N_snapshots = opt_obj.X_fitted.shape[2]
+    X_send_transpose  = np.ascontiguousarray(opt_obj.X_fitted.transpose(0, 2, 1).reshape(-1, N_space), dtype=np.double) # shape (my_n_traj*n_snapshots, N_space)
     my_counts = pool.counts * N_space * N_snapshots
-    my_disps = pool.disps * N_space * N_snapshots
-    
-    # 收集所有快照到 rank 0
-    pool.comm.Gatherv(sendbuf = X,
-                      recvbuf = [X_all, my_counts, my_disps, MPI.DOUBLE], root=0) # again, copy X to have X_all
+    my_disps  = pool.disps * N_space * N_snapshots
     
     if pool.rank == 0:
-        # Reshape: (N_space, Total_Snapshots)
-        X_all = X_all.transpose(1,0,2).reshape(N_space,-1) # seems to copy again
-        M_total = X_all.shape[1]
-        
+        total_snapshots = pool.n_traj * N_snapshots
+        X_all_transpose = np.empty((total_snapshots, N_space), dtype=np.double)
+    else:
+        X_all_transpose = None
+    pool.comm.Gatherv(sendbuf = X_send_transpose,
+                      recvbuf = [X_all_transpose, my_counts, my_disps, MPI.DOUBLE], root=0)
+    del X_send_transpose # free memory
+    if pool.rank == 0:
+        print(f"Rank 0: Received all snapshots. Total snapshots: {X_all_transpose.shape[0]}")
+        X_all = X_all_transpose.T  # shape (N_space, total_snapshots)
+        del X_all_transpose # free memory
         C = fom.compute_snapshot_correlation_matrix(X_all) # large, N_snapshots x N_snapshots
         
         print(f"Rank 0: Correlation Matrix computed. Range: {C.min():.2e} to {C.max():.2e}")
 
         # 3. 求解特征值问题 C * v = lambda * v
         # eigh 专门用于实对称矩阵，速度快且更稳
-        eigvals, eigvecs = sp.linalg.eigh(C, subset_by_index=[M_total-r, M_total-1]) # can we only let it to compute the first r largest eigenvalues?
-        print(eigvals[-40:])
-        # 4. 排序 (eigh 返回的是从小到大，需要反转)
-        sorted_indices = np.argsort(eigvals)[::-1]
-        lambdas = eigvals[sorted_indices]
-        V = eigvecs[:, sorted_indices] # V 的每一列是特征向量 v_k
-        
-        # 5. 截断 (只取前 r 个)
-        # 很多时候 lambda 会有极小的机器误差负数，取 abs 或者截断
-        lambdas_r = lambdas[:r]
-        V_r = V[:, :r]
+        eigvals, eigvecs = sp.linalg.eigh(C, subset_by_index=[total_snapshots-r, total_snapshots-1]) # can we only let it to compute the first r largest eigenvalues?
+        lambdas_r = eigvals[::-1]
+        V_r = eigvecs[:, ::-1] # V 的每一列是一个特征向量
+        print(lambdas_r)
         
         if np.any(lambdas_r <= 0):
             print(f"Rank 0 Warning: Detected {np.sum(lambdas_r <= 0)} non-positive eigenvalues due to numerical noise.")
@@ -219,7 +208,7 @@ def perform_POD(pool, opt_obj, r, fom):
         
         # 计算能量占比 (基于特征值 lambda)
         # 在快照法中，lambda 本身就是能量 (Sigma^2)
-        cumulative_energy_proportion = 100 * np.cumsum(lambdas[:r]) / np.sum(lambdas)
+        cumulative_energy_proportion = 100 * np.cumsum(lambdas_r) / np.trace(C)
         
         # 6. 重构空间模态 Phi
         # Phi = X * V * S^(-1/2)

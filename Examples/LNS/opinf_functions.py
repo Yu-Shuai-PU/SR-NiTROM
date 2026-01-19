@@ -159,9 +159,11 @@ def perform_POD(pool, opt_obj, r, fom):
     """
     Verified. The POD modes are orthogonal under the weighted inner product defined in fom.inner_product_3D.
     """
-    N_space = opt_obj.X_fitted.shape[1]
-    N_snapshots = opt_obj.X_fitted.shape[2]
-    X_send_transpose  = np.ascontiguousarray(opt_obj.X_fitted.transpose(0, 2, 1).reshape(-1, N_space), dtype=np.double) # shape (my_n_traj*n_snapshots, N_space)
+    X_fitted = opt_obj.load_fitted_FOM_trajectories_all(pool)
+    N_space = X_fitted.shape[1]
+    N_snapshots = X_fitted.shape[2]
+    X_send_transpose  = np.ascontiguousarray(X_fitted.transpose(0, 2, 1).reshape(-1, N_space), dtype=np.double) # shape (my_n_traj*n_snapshots, N_space)
+    del X_fitted # free memory
     my_counts = pool.counts * N_space * N_snapshots
     my_disps  = pool.disps * N_space * N_snapshots
     
@@ -176,9 +178,8 @@ def perform_POD(pool, opt_obj, r, fom):
     if pool.rank == 0:
         print(f"Rank 0: Received all snapshots. Total snapshots: {X_all_transpose.shape[0]}")
         X_all = X_all_transpose.T  # shape (N_space, total_snapshots)
-        del X_all_transpose # free memory
         C = fom.compute_snapshot_correlation_matrix(X_all) # large, N_snapshots x N_snapshots
-        
+        del X_all_transpose # free memory
         print(f"Rank 0: Correlation Matrix computed. Range: {C.min():.2e} to {C.max():.2e}")
 
         # 3. 求解特征值问题 C * v = lambda * v

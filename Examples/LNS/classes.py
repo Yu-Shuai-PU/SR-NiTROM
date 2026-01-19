@@ -58,57 +58,64 @@ class mpi_pool:
 
     def load_trajectories(self,kwargs):
         
-        fname_traj = kwargs.get('fname_traj',None)
-        if fname_traj != None:
-            self.fnames_traj = [fname_traj%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-            X = [np.load(self.fnames_traj[k]) for k in range (self.my_n_traj)]
-            self.n_snapshots = X[0].shape[1]
+        # fname_traj = kwargs.get('fname_traj',None)
+        # if fname_traj != None: # only load the memory location, we are going to fill in the data when needed in the optimization_objects class
+        #     self.fnames_traj = [fname_traj%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
+        #     self.X = [np.load(self.fnames_traj[k], mmap_mode='r') for k in range (self.my_n_traj)]
+        #     self.n_snapshots = self.X[0].shape[1] 
+        # if fname_traj != None:
+        #     self.fnames_traj = [fname_traj%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
+        #     X = [np.load(self.fnames_traj[k]) for k in range (self.my_n_traj)]
+        #     self.n_snapshots = X[0].shape[1]
             
-            self.X = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
+        #     self.X = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
         
-            for k in range (self.my_n_traj): self.X[k,] = X[k]
-            
+        #     for k in range (self.my_n_traj): self.X[k,] = X[k]
         fname_traj_weighted = kwargs.get('fname_traj_weighted',None)
         if fname_traj_weighted != None:
             self.fnames_traj_weighted = [fname_traj_weighted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-            X_weighted = [np.load(self.fnames_traj_weighted[k]) for k in range (self.my_n_traj)]
+            self.X_weighted = [np.load(self.fnames_traj_weighted[k], mmap_mode='r') for k in range (self.my_n_traj)]
+            self.n_snapshots = self.X_weighted[0].shape[1]
+            # X_weighted = [np.load(self.fnames_traj_weighted[k]) for k in range (self.my_n_traj)]
             
-            self.X_weighted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
+            # self.X_weighted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
 
-            for k in range (self.my_n_traj): self.X_weighted[k,] = X_weighted[k]
-        
+            # for k in range (self.my_n_traj): self.X_weighted[k,] = X_weighted[k]
         fname_traj_fitted = kwargs.get('fname_traj_fitted',None)
         if fname_traj_fitted != None:
             self.fnames_traj_fitted = [fname_traj_fitted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-            X_fitted = [np.load(self.fnames_traj_fitted[k]) for k in range (self.my_n_traj)]
+            self.X_fitted = [np.load(self.fnames_traj_fitted[k], mmap_mode='r') for k in range (self.my_n_traj)]
+            # X_fitted = [np.load(self.fnames_traj_fitted[k]) for k in range (self.my_n_traj)]
             
-            self.X_fitted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
+            # self.X_fitted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
 
-            for k in range (self.my_n_traj): self.X_fitted[k,] = X_fitted[k]
+            # for k in range (self.my_n_traj): self.X_fitted[k,] = X_fitted[k]
             
-            X_fitted_init = [np.load(self.fnames_traj_fitted[k], mmap_mode='r')[:, 0] for k in range (self.my_n_traj)]
+            # X_fitted_init = [np.load(self.fnames_traj_fitted[k], mmap_mode='r')[:, 0] for k in range (self.my_n_traj)]
             
-            self.X_fitted_init = np.zeros((self.my_n_traj,self.N))
+            # self.X_fitted_init = np.zeros((self.my_n_traj,self.N))
 
-            for k in range (self.my_n_traj): self.X_fitted_init[k,] = X_fitted_init[k]
+            # for k in range (self.my_n_traj): self.X_fitted_init[k,] = X_fitted_init[k]
             
         fname_traj_fitted_weighted = kwargs.get('fname_traj_fitted_weighted',None)
         if fname_traj_fitted_weighted != None:
             self.fnames_traj_fitted_weighted = [fname_traj_fitted_weighted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-            X_fitted_weighted = [np.load(self.fnames_traj_fitted_weighted[k]) for k in range (self.my_n_traj)]
+            # self.X_fitted_weighted = [np.load(self.fnames_traj_fitted_weighted[k], mmap_mode='r') for k in range (self.my_n_traj)]
+            self.X_fitted_weighted_init = [np.load(self.fnames_traj_fitted_weighted[k], mmap_mode='r')[:, 0] for k in range (self.my_n_traj)]
+            # X_fitted_weighted = [np.load(self.fnames_traj_fitted_weighted[k]) for k in range (self.my_n_traj)]
             
-            self.X_fitted_weighted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
+            # self.X_fitted_weighted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
 
-            for k in range (self.my_n_traj): self.X_fitted_weighted[k,] = X_fitted_weighted[k]
+            # for k in range (self.my_n_traj): self.X_fitted_weighted[k,] = X_fitted_weighted[k]
             
-        fname_traj_fitted_weighted = kwargs.get('fname_traj_fitted_weighted',None)
-        if fname_traj_fitted_weighted != None:
-            self.fnames_traj_fitted_weighted = [fname_traj_fitted_weighted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-            X_fitted_weighted_init = [np.load(self.fnames_traj_fitted_weighted[k], mmap_mode='r')[:, 0] for k in range (self.my_n_traj)]
+        # fname_traj_fitted_weighted = kwargs.get('fname_traj_fitted_weighted',None)
+        # if fname_traj_fitted_weighted != None:
+        #     self.fnames_traj_fitted_weighted = [fname_traj_fitted_weighted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
+        #     X_fitted_weighted_init = [np.load(self.fnames_traj_fitted_weighted[k], mmap_mode='r')[:, 0] for k in range (self.my_n_traj)]
             
-            self.X_fitted_weighted_init = np.zeros((self.my_n_traj,self.N))
+        #     self.X_fitted_weighted_init = np.zeros((self.my_n_traj,self.N))
 
-            for k in range (self.my_n_traj): self.X_fitted_weighted_init[k,] = X_fitted_weighted_init[k]
+        #     for k in range (self.my_n_traj): self.X_fitted_weighted_init[k,] = X_fitted_weighted_init[k]
         
     def load_weights(self,kwargs):
 
@@ -249,26 +256,50 @@ class optimization_objects:
             stab_promoting_ic:      random (unit-norm) vector to probe the stability penalty
         """
 
-        self.X = mpi_pool.X[which_trajs,:,:]
-        self.X_weighted = mpi_pool.X_weighted[which_trajs,:,:]
-        self.X_fitted = mpi_pool.X_fitted[which_trajs,:,:]
-        self.X_fitted_init = mpi_pool.X_fitted_init[which_trajs,:]
-        self.X_fitted_weighted = mpi_pool.X_fitted_weighted[which_trajs,:,:]
-        self.X_fitted_weighted_init = mpi_pool.X_fitted_weighted_init[which_trajs,:]
+        # self.X = mpi_pool.X[which_trajs,:,:]
+        # self.X = self.X[:,:,which_times]
+        # X_list = []
+        self.which_trajs = which_trajs
+        self.which_times = which_times
+        
+        X_weighted_list = []
+        # X_fitted_list = []
+        # X_fitted_weighted_list = []
+        X_fitted_weighted_init_list = []
+        for traj_idx in which_trajs:
+        #     X_list.append(mpi_pool.X[traj_idx][:,which_times])
+            X_weighted_list.append(mpi_pool.X_weighted[traj_idx][:,which_times])
+        #     X_fitted_list.append(mpi_pool.X_fitted[traj_idx][:,which_times])
+        #     X_fitted_weighted_list.append(mpi_pool.X_fitted_weighted[traj_idx][:,which_times])
+            X_fitted_weighted_init_list.append(mpi_pool.X_fitted_weighted_init[traj_idx])
+        # self.X = np.stack(X_list, axis=0)
+        self.X_weighted = np.stack(X_weighted_list, axis=0)
+        # self.X_fitted = np.stack(X_fitted_list, axis=0)
+        # self.X_fitted_weighted = np.stack(X_fitted_weighted_list, axis=0)
+        self.X_fitted_weighted_init = np.stack(X_fitted_weighted_init_list, axis=0)
+        
+        # print(f"difference between X and X_test for rank {mpi_pool.rank}: {np.linalg.norm(self.X - self.X_test)}")
+        
+        
+        # self.X_weighted = mpi_pool.X_weighted[which_trajs,:,:]
+        # self.X_fitted = mpi_pool.X_fitted[which_trajs,:,:]
+        # self.X_fitted_init = mpi_pool.X_fitted_init[which_trajs,:]
+        # self.X_fitted_weighted = mpi_pool.X_fitted_weighted[which_trajs,:,:]
+        # self.X_fitted_weighted_init = mpi_pool.X_fitted_weighted_init[which_trajs,:]
         self.F = mpi_pool.F[:,which_trajs]
         self.F_weighted = mpi_pool.F_weighted[:,which_trajs]
         self.c = mpi_pool.c[which_trajs,:]
         self.cdot = mpi_pool.cdot[which_trajs,:]
         self.time = mpi_pool.time[which_times]
 
-        self.X = self.X[:,:,which_times]
-        self.X_weighted = self.X_weighted[:,:,which_times]
-        self.X_fitted = self.X_fitted[:,:,which_times]
-        self.X_fitted_weighted = self.X_fitted_weighted[:,:,which_times]
+        # self.X = self.X[:,:,which_times]
+        # self.X_weighted = self.X_weighted[:,:,which_times]
+        # self.X_fitted = self.X_fitted[:,:,which_times]
+        # self.X_fitted_weighted = self.X_fitted_weighted[:,:,which_times]
         self.c = self.c[:,which_times]
         self.cdot = self.cdot[:,which_times]
         
-        self.my_n_traj, _, self.n_snapshots = self.X.shape
+        self.my_n_traj, self.n_states, self.n_snapshots = self.X_weighted.shape
         self.leggauss_deg = leggauss_deg
         self.nsave_rom = nsave_rom
         self.poly_comp = poly_comp
@@ -325,6 +356,33 @@ class optimization_objects:
         self.state_mag_threshold = 1e4
         self.cdot_denom_threshold = 1e-15
         
+    def load_fitted_FOM_trajectories_all(self,mpi_pool):
+        """Load opt_obj.X_fitted when needed
+        Arguments:
+            mpi_pool:   an instance of the mpi_pool class where the fitted FOM trajectories are stored
+        """
+        X_fitted_list = []
+        for traj_idx in self.which_trajs:
+            X_fitted_list.append(mpi_pool.X_fitted[traj_idx][:,self.which_times])
+        X_fitted = np.stack(X_fitted_list, axis=0)
+        
+        return X_fitted
+        
+    def load_various_FOM_trajectories_idx(self, mpi_pool, traj_idx):
+        """Load benchmark FOM data, FOM fitted data and weighted FOM fitted data of No. idx traj for comparison with ROM predictions
+        Arguments:
+            mpi_pool:   an instance of the mpi_pool class where the fitted FOM trajectories are stored
+            traj_idx:   index of the trajectory to load (should be in self.my_n_traj)
+        Outputs:
+            X_fom:              FOM trajectory
+            X_fom_fitted:       FOM fitted trajectory
+            X_fom_fitted_weighted: FOM fitted weighted trajectory
+        """
+        X_fom = mpi_pool.X[traj_idx][:,self.which_times]
+        X_fom_fitted = mpi_pool.X_fitted[traj_idx][:,self.which_times]
+        X_fom_fitted_weighted = mpi_pool.X_fitted_weighted[traj_idx][:,self.which_times]
+        return X_fom, X_fom_fitted, X_fom_fitted_weighted
+   
     def initialize_weights(self, fom):
         
         weight_traj = np.zeros(self.my_n_traj)
@@ -560,15 +618,3 @@ class optimization_objects:
             dhdzT = dhdzT/self.compute_shift_speed_denom(z, operators)
 
         return dhdzT
-
-    
-
-        
-        
-        
-        
-        
-        
-        
-        
-        

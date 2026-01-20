@@ -108,7 +108,7 @@ def main():
             # since eta0 = d^2psi/dxdy, if psi is odd in Z, then eta0 is also odd in Z, f_eta in the template must be 0
             # Consequently, the total template will be zero if both f_v and f_eta are zero, which leads to singularity in template fitting and symmetry reduction
             # thus, to avoid both 0 issue, we need to use a even function in Z for psi
-            psi0 = (1 - Y**2)**2 * (Xprime/2) * np.exp(-(Xprime/2)**2 - (Zprime/2)**2)
+            psi0 = (1 - Y**2)**2 * (Xprime/2) * (Zprime ** 2) * np.exp(-(Xprime/2)**2 - (Zprime/2)**2)
         else: # with multiple oblique-wave type and TS-wave type initial disturbances, we don't need to worry about the zero-template issue brought by the symmetry
             psi0 = (1 - Y**2)**2 * (Xprime/2) * Zprime * np.exp(-(Xprime/2)**2 - (Zprime/2)**2)
         u0 = np.sin(angle) * fom.diff_1_y(psi0)

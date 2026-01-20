@@ -24,37 +24,40 @@ class SimConfigs:
     # ny: int = 65
     # nz: int = 96
     # Re: float = 3000
-    T: float = 500
+    T: float = 200 # seems to be enough for Re = 2000 and the given oblique-wave type initial disturbances to see transient growth and final decay
     dt: float = 1
     nsave: int = 1
     # amp: float = 1.0
     # small_amp: float = 0.0001
     # medium_amp: float = 0.0699
     # large_amp: float = 0.1398
-    traj_path: str = "./trajectories/"
     data_path: str = "./data/"
     fig_path_SRG: str = "./figures/SRG/"
     fig_path_SRN: str = "./figures/SRN/"
     fig_path_FOM: str = "./figures/FOM/"
+    traj_path_FOM: str = "./trajectories/FOM/"
+    traj_path_SRG: str = "./trajectories/SRG/"
+    traj_path_SRN: str = "./trajectories/SRN/"
     
     # Training methods
     
     # n_traj : int = 1 # number of trajectories used for training
-    n_traj_training : int = 10 # number of trajectories used for training. 12 for rotated TS wave-type disturbance (each with rotation angle 0, 30, 60, ..., 330 degrees), 12 for rotated oblique wave-type disturbance
+    n_traj_training_type : int = 1 # 1 for oblique-wave type only, 2 for both oblique-wave and TS-wave types
+    n_traj_training : int = 1 # number of trajectories used for training. 12 for rotated TS wave-type disturbance (each with rotation angle 0, 30, 60, ..., 330 degrees), 12 for rotated oblique wave-type disturbance
     rotation_angle_bound: int = 90 # maximum rotation angle for generating initial disturbances
     range_traj_template_generation: range = range(n_traj_training) # indices of trajectories used for generating template
     n_traj_testing : int = 5 # number of trajectories used for testing
-    r : int = 40 # dimension of the ROM
+    r : int = 8 # dimension of the ROM, 20 for a single oblique wave-type disturbance, 100 for the entire training dataset with multiple rotation angles
     poly_comp: List[int] = field(default_factory=lambda: [1])
     initialization: str = "POD-Galerkin" # "POD-Galerkin" or "Previous NiTROM"
     # initialization: str = "Previous NiTROM" # "POD-Galerkin" or "Previous NiTROM"
     NiTROM_coeff_version: str = "new" # "old" or "new" for loading the NiTROM coefficients before or after the latest training
     training_objects: str = "tensors_and_bases" # "tensors_and_bases" or "tensors" or "no_alternating"
     # training_objects: str = "no_alternating" # "tensors_and_bases" or "tensors" or "no_alternating"
-    # manifold: str = "Stiefel" # "Grassmann" or "Stiefel" for Psi manifold choice
     manifold: str = "Grassmann" # "Grassmann" or "Stiefel" for Psi manifold choice
+    # manifold: str = "Grassmann" # "Grassmann" or "Stiefel" for Psi manifold choice
     timespan_percentage_POD: float = 1.00 # percentage of the entire timespan used for POD (always use all snapshots for POD)
-    timespan_percentage_NiTROM_training: float = 0.2 # percentage of the entire timespan used for NiTROM training
+    timespan_percentage_NiTROM_training: float = 0.1 # percentage of the entire timespan used for NiTROM training
     
     # Parameters for relative weights between different terms in the cost function
     
@@ -77,8 +80,8 @@ class SimConfigs:
     kinner_basis: int = 10
     kinner_tensor: int = 5
     
-    initial_step_size_basis: float = 1e-2
-    initial_step_size_tensor: float = 1e-4
+    initial_step_size_basis: float = 2e-2
+    initial_step_size_tensor: float = 2e-4
     initial_step_size: float = 1e-3
     
     step_size_decrease_rate: float = 0.9
@@ -100,10 +103,13 @@ class SimConfigs:
 
     def __post_init__(self):
         
-        os.makedirs(self.traj_path, exist_ok=True)
+        os.makedirs(self.traj_path_FOM, exist_ok=True)
+        os.makedirs(self.traj_path_SRG, exist_ok=True)
+        os.makedirs(self.traj_path_SRN, exist_ok=True)
         os.makedirs(self.data_path, exist_ok=True)
         os.makedirs(self.fig_path_SRG, exist_ok=True)
         os.makedirs(self.fig_path_SRN, exist_ok=True)
+        os.makedirs(self.fig_path_FOM, exist_ok=True)
                 
         self.x = np.linspace(-self.Lx / 2.0, self.Lx / 2.0, num=self.nx, endpoint=False)
         self.y = np.cos(np.pi * np.linspace(0, self.ny - 1, num=self.ny) / (self.ny - 1))
@@ -132,17 +138,17 @@ class SimConfigs:
         self.fname_traj_init_weighted = self.data_path + "traj_init_weighted_%03d.npy" # for initial condition of u
         self.fname_traj_init_fitted = self.data_path + "traj_init_fitted_%03d.npy" # for initial condition of u fitted
         self.fname_traj_init_fitted_weighted = self.data_path + "traj_init_fitted_weighted_%03d.npy" # for initial condition of u fitted
-        self.fname_traj = self.traj_path + "traj_%03d.npy" # for u
-        self.fname_traj_weighted = self.traj_path + "traj_weighted_%03d.npy" # for u
-        self.fname_traj_fitted = self.traj_path + "traj_fitted_%03d.npy" # for u fitted
-        self.fname_traj_fitted_weighted = self.traj_path + "traj_fitted_weighted_%03d.npy" # for u fitted
-        self.fname_deriv = self.traj_path + "deriv_%03d.npy" # for du/dt
-        self.fname_deriv_weighted = self.traj_path + "deriv_weighted_%03d.npy" # for du/dt
-        self.fname_deriv_fitted = self.traj_path + "deriv_fitted_%03d.npy" # for du/dt fitted
-        self.fname_deriv_fitted_weighted = self.traj_path + "deriv_fitted_weighted_%03d.npy" # for du/dt fitted
-        self.fname_shift_amount = self.traj_path + "shift_amount_%03d.npy" # for shifting amount
-        self.fname_shift_speed = self.traj_path + "shift_speed_%03d.npy" # for shifting speed
-        self.fname_time = self.traj_path + "time.npy"
+        self.fname_traj = self.traj_path_FOM + "traj_%03d.npy" # for u
+        self.fname_traj_weighted = self.traj_path_FOM + "traj_weighted_%03d.npy" # for u
+        self.fname_traj_fitted = self.traj_path_FOM + "traj_fitted_%03d.npy" # for u fitted
+        self.fname_traj_fitted_weighted = self.traj_path_FOM + "traj_fitted_weighted_%03d.npy" # for u fitted
+        self.fname_deriv = self.traj_path_FOM + "deriv_%03d.npy" # for du/dt
+        self.fname_deriv_weighted = self.traj_path_FOM + "deriv_weighted_%03d.npy" # for du/dt
+        self.fname_deriv_fitted = self.traj_path_FOM + "deriv_fitted_%03d.npy" # for du/dt fitted
+        self.fname_deriv_fitted_weighted = self.traj_path_FOM + "deriv_fitted_weighted_%03d.npy" # for du/dt fitted
+        self.fname_shift_amount = self.traj_path_FOM + "shift_amount_%03d.npy" # for shifting amount
+        self.fname_shift_speed = self.traj_path_FOM + "shift_speed_%03d.npy" # for shifting speed
+        self.fname_time = self.traj_path_FOM + "time.npy"
         
         self.num_modes_to_plot = self.r
         self.snapshot_start_time_idx_POD = 0

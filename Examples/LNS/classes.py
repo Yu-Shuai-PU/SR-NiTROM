@@ -58,11 +58,11 @@ class mpi_pool:
 
     def load_trajectories(self,kwargs):
         
-        # fname_traj = kwargs.get('fname_traj',None)
-        # if fname_traj != None: # only load the memory location, we are going to fill in the data when needed in the optimization_objects class
-        #     self.fnames_traj = [fname_traj%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-        #     self.X = [np.load(self.fnames_traj[k], mmap_mode='r') for k in range (self.my_n_traj)]
-        #     self.n_snapshots = self.X[0].shape[1] 
+        fname_traj = kwargs.get('fname_traj',None)
+        if fname_traj != None: # only load the memory location, we are going to fill in the data when needed in the optimization_objects class
+            self.fnames_traj = [fname_traj%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
+            self.X = [np.load(self.fnames_traj[k], mmap_mode='r') for k in range (self.my_n_traj)]
+            self.n_snapshots = self.X[0].shape[1] 
         # if fname_traj != None:
         #     self.fnames_traj = [fname_traj%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
         #     X = [np.load(self.fnames_traj[k]) for k in range (self.my_n_traj)]
@@ -75,7 +75,7 @@ class mpi_pool:
         if fname_traj_weighted != None:
             self.fnames_traj_weighted = [fname_traj_weighted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
             self.X_weighted = [np.load(self.fnames_traj_weighted[k], mmap_mode='r') for k in range (self.my_n_traj)]
-            self.n_snapshots = self.X_weighted[0].shape[1]
+            # self.n_snapshots = self.X_weighted[0].shape[1]
             # X_weighted = [np.load(self.fnames_traj_weighted[k]) for k in range (self.my_n_traj)]
             
             # self.X_weighted = np.zeros((self.my_n_traj,self.N,self.n_snapshots))
@@ -100,7 +100,7 @@ class mpi_pool:
         fname_traj_fitted_weighted = kwargs.get('fname_traj_fitted_weighted',None)
         if fname_traj_fitted_weighted != None:
             self.fnames_traj_fitted_weighted = [fname_traj_fitted_weighted%(k+self.disps[self.rank]) for k in range (self.my_n_traj)]
-            # self.X_fitted_weighted = [np.load(self.fnames_traj_fitted_weighted[k], mmap_mode='r') for k in range (self.my_n_traj)]
+            self.X_fitted_weighted = [np.load(self.fnames_traj_fitted_weighted[k], mmap_mode='r') for k in range (self.my_n_traj)]
             self.X_fitted_weighted_init = [np.load(self.fnames_traj_fitted_weighted[k], mmap_mode='r')[:, 0] for k in range (self.my_n_traj)]
             # X_fitted_weighted = [np.load(self.fnames_traj_fitted_weighted[k]) for k in range (self.my_n_traj)]
             
@@ -460,7 +460,7 @@ class optimization_objects:
             dzdt = 0.0*z
             dcdt = 0.0
             # raise ValueError ("The norm of the state vector is too large!")
-            print("Warning: The norm of the state vector is too large! Modified RHS to zero.")
+            print("Warning: The norm of the state vector is too large! Modified RHS to 0.")
         else:
             f = kwargs.get('forcing_interp',None)
             f = f(t) if f != None else np.zeros(len(z))

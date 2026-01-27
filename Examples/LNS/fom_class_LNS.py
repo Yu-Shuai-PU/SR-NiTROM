@@ -484,6 +484,83 @@ class LNS:
             self.R_diag_eta[:, :, 0] = 0
             self.inv_R_blocks_v[:, 0, :, :] = 0
             self.inv_R_diag_eta[:, :, 0] = 0
+            
+    def Cholesky_inner_product_weight_frequency_domain(self, kx, kz):
+        """
+        构造单波数 (kx, kz) 下的能量范数权重矩阵的 Cholesky 因子。
+        
+        物理含义:
+        Energy E = q^H * W * q
+        W = R^H * R
+        我们需要 R 和 R^-1 来将 LNS 算子变换到能量空间: L_tilde = R * L * R^-1
+        
+        Args:
+            ny: int, 总网格点数 (包含边界)
+            kx, kz: float, 波数
+            D1: (ny, ny) array, 一阶微分矩阵 (全尺寸)
+            integration_weights: (ny,) array, 积分权重 (如 Clenshaw-Curtis)
+            
+        Returns:
+            R: (2*(ny-2), 2*(ny-2)) 上三角矩阵
+            R_inv: (2*(ny-2), 2*(ny-2)) R 的逆
+        """
+        
+        # 0. 基础准备
+        k2 = kx**2 + kz**2
+        if k2 < 1e-12:
+            # 处理 k=0 的情况 (Mean flow correction? 通常 Transient Growth 不算这个)
+            # 返回单位阵防止报错，但物理上通常应跳过
+            return np.eye(2*(self.ny-2)), np.eye(2*(self.ny-2))
+
+        # 1. 准备积分权重矩阵
+        S_full = np.diag(self.Clenshaw_Curtis_weights)        # (ny, ny)
+        S_inner = np.diag(self.Clenshaw_Curtis_weights[1:-1]) # (ny-2, ny-2) 仅内部点
+        
+        # 2. 构造 v 分量的权重矩阵 W_vv
+        # 公式: E_v = integral( |v|^2 + 1/k^2 * |dv/dy|^2 )
+        # 离散: v^H * S_inner * v + (1/k^2) * v^H * D_inner^H * S_full * D_inner * v
+        
+        # 关键点: D1 必须作用在 full 向量上。
+        # 由于 v 在边界为 0 (Dirichlet)，我们将 D1 的列切片，只保留对应内部点的列。
+        # D1_inner 将 (ny-2) 的内部向量映射到 (ny) 的全域导数向量 (边界处导数非零!)
+        D1_inner = self.D1[:, 1:-1] # shape: (ny, ny-2)
+        
+        # W_vv = S + (1/k^2) * D^T * S * D
+        W_vv = S_inner + (1.0 / k2) * (D1_inner.conj().T @ S_full @ D1_inner)
+        
+        # 3. 构造 eta 分量的权重矩阵 W_eta
+        # 公式: E_eta = integral( 1/k^2 * |eta|^2 )
+        # 离散: (1/k^2) * eta^H * S_inner * eta
+        W_etaeta = (1.0 / k2) * S_inner
+        
+        # 4. Cholesky 分解 (分别对 v 和 eta 块进行，效率更高)
+        
+        # --- v 块 ---
+        # 添加微小扰动保证正定性 (Numerical Stability)
+        try:
+            # lower=False 返回上三角 R, 使得 W = R^T * R
+            R_vv = scipy.linalg.cholesky(W_vv + 1e-14 * np.eye(self.ny-2), lower=False)
+            R_vv_inv = scipy.linalg.inv(R_vv)
+        except np.linalg.LinAlgError:
+            print(f"Warning: Matrix not positive definite at k2={k2}")
+            R_vv = np.eye(self.ny-2)
+            R_vv_inv = np.eye(self.ny-2)
+
+        # --- eta 块 ---
+        # 因为 W_etaeta 是对角的，Cholesky 就是开根号
+        # R_eta = sqrt(1/k^2 * w)
+        # 这里的 sqrt 是针对对角元素的
+        R_eta_diag = np.sqrt(1.0 / k2 * self.Clenshaw_Curtis_weights[1:-1])
+        R_etaeta = np.diag(R_eta_diag)
+        R_etaeta_inv = np.diag(1.0 / R_eta_diag)
+        
+        # 5. 组装大矩阵 R 和 R_inv
+        # 结构: [ R_vv   0   ]
+        #       [  0   R_eta ]
+        R = scipy.linalg.block_diag(R_vv, R_etaeta)
+        R_inv = scipy.linalg.block_diag(R_vv_inv, R_etaeta_inv)
+        
+        return R, R_inv
         
     def apply_sqrt_inner_product_weight(self, q_vec):
         """
@@ -772,6 +849,25 @@ class LNS:
                 linear_mat[idx_kx, idx_kz, :, :] = scipy.linalg.solve(M, L)
                 
         return linear_mat
+    
+    def assemble_fom_linear_operator_frequency_domain(self, kx, kz):
+        """Assemble the linear operator L for the single-frequency component solution with given (kx, kz)."""
+        
+        Id = np.eye(self.ny - 2, dtype=complex)
+        D2 = self.D2
+        D4 = self.D4
+        
+        M = np.zeros((2 * (self.ny - 2), 2 * (self.ny - 2)), dtype=complex)
+        L = np.zeros((2 * (self.ny - 2), 2 * (self.ny - 2)), dtype=complex)
+
+        Laplace = D2 - (kx**2 + kz**2) * Id
+        Bi_Laplace = D4 - 2 * (kx**2 + kz**2) * D2 + (kx**2 + kz**2)**2 * Id
+        M[:self.ny - 2, :self.ny - 2] = Laplace
+        M[self.ny - 2:, self.ny - 2:] = Id
+        L[:self.ny - 2, :self.ny - 2] = -1j * kx * (self.U_base_mat @ Laplace) + 1j * kx * self.U_base_dyy_mat + Bi_Laplace / self.Re
+        L[self.ny - 2:, :self.ny - 2] = -1j * kz * self.U_base_dy_mat
+        L[self.ny - 2:, self.ny - 2:] = -1j * kx * self.U_base_mat + Laplace / self.Re
+        return scipy.linalg.solve(M, L) 
     
     def assemble_fom_exp_linear_operator(self, fom_linear_mat, dt):
         """Assemble the matrix exponential of the full linear operator exp(dt*L) for the exponential timestepper of the FOM."""
